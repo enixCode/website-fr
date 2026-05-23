@@ -9,6 +9,7 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -72,8 +73,26 @@ func initTour(mux *http.ServeMux, transport string) error {
 
 // initLessons finds all the lessons in the content directory, renders them,
 // using the given template and saves the content in the lessons map.
+// Lessons present under _content/i18n/fr/tour/ override the English ones at
+// the same slug, so /tour/<name> serves the translated content where it exists.
 func initLessons(tmpl *template.Template) error {
-	files, err := fs.ReadDir(contentTour, "tour")
+	if err := loadLessonsFromDir("tour", "tour", tmpl); err != nil {
+		return err
+	}
+	// Override with FR translations where available.
+	// Missing or empty FR tour dir is not an error.
+	if err := loadLessonsFromDir("i18n/fr/tour", "tour", tmpl); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("loading FR tour: %v", err)
+	}
+	return nil
+}
+
+// loadLessonsFromDir reads every .article file under articleDir and stores
+// the rendered lesson in the lessons map. Code files referenced by .play and
+// .code directives are resolved relative to codeDir, which lets translated
+// articles reuse the original (English) code samples without duplication.
+func loadLessonsFromDir(articleDir, codeDir string, tmpl *template.Template) error {
+	files, err := fs.ReadDir(contentTour, articleDir)
 	if err != nil {
 		return err
 	}
@@ -81,9 +100,9 @@ func initLessons(tmpl *template.Template) error {
 		if path.Ext(f.Name()) != ".article" {
 			continue
 		}
-		content, err := parseLesson(f.Name(), tmpl)
+		content, err := parseLesson(articleDir+"/"+f.Name(), codeDir, tmpl)
 		if err != nil {
-			return fmt.Errorf("parsing %v: %v", f.Name(), err)
+			return fmt.Errorf("parsing %v: %v", articleDir+"/"+f.Name(), err)
 		}
 		name := strings.TrimSuffix(f.Name(), ".article")
 		lessons[name] = content
@@ -112,20 +131,25 @@ type lesson struct {
 	Pages       []page
 }
 
-// parseLesson parses and returns a lesson content given its path
-// relative to root ('/'-separated) and the template to render it.
-func parseLesson(path string, tmpl *template.Template) ([]byte, error) {
-	f, err := contentTour.Open("tour/" + path)
+// parseLesson parses and returns a lesson content. articlePath is the full
+// path of the .article file inside contentTour. codeDir is the directory
+// used to resolve .play/.code file references inside the article, so a
+// translated article can reuse the original code samples.
+func parseLesson(articlePath, codeDir string, tmpl *template.Template) ([]byte, error) {
+	f, err := contentTour.Open(articlePath)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
 	ctx := &present.Context{
 		ReadFile: func(filename string) ([]byte, error) {
-			return fs.ReadFile(contentTour, "tour/"+filepath.ToSlash(filename))
+			return fs.ReadFile(contentTour, codeDir+"/"+filepath.ToSlash(filename))
 		},
 	}
-	doc, err := ctx.Parse(prepContent(f), path, 0)
+	// Pass only the basename so that include directives inside the .article
+	// (e.g. ".play basics/packages.go") resolve via our codeDir-aware ReadFile
+	// rather than being looked up relative to articlePath's directory.
+	doc, err := ctx.Parse(prepContent(f), path.Base(articlePath), 0)
 	if err != nil {
 		return nil, err
 	}

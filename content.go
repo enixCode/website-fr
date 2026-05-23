@@ -28,6 +28,7 @@ var embedded embed.FS
 //go:embed _content/images/icons
 //go:embed _content/js/playground.js
 //go:embed _content/tour
+//go:embed _content/i18n
 var tourOnly embed.FS
 
 func subdir(fsys fs.FS, path string) fs.FS {
