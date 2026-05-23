@@ -1,0 +1,103 @@
+Bienvenue !
+Apprends à utiliser ce tour : comment naviguer entre les leçons et comment exécuter du code.
+
+The Go Authors
+https://golang.org
+
+* Bonjour, 世界
+
+Bienvenue dans le tour du [[/][langage de programmation Go]].
+
+Le tour est divisé en une liste de modules accessibles en cliquant sur
+[[javascript:highlight(".logo")][A Tour of Go]] en haut à gauche de la page.
+
+Tu peux aussi afficher la table des matières à tout moment en cliquant sur le [[javascript:highlightAndClick(".nav")][menu]] en haut à droite de la page.
+
+Tout au long du tour, tu trouveras une série de slides et d'exercices à compléter.
+
+Tu peux naviguer entre eux en utilisant
+
+- [[javascript:highlight(".prev-page")]["previous"]] ou `PageUp` pour aller à la page précédente,
+
+- [[javascript:highlight(".next-page")]["next"]] ou `PageDown` pour aller à la page suivante.
+
+Le tour est interactif. Clique sur le bouton
+[[javascript:highlightAndClick("#run")][Run]] maintenant
+(ou appuie sur `Shift` + `Enter`) pour compiler et exécuter le programme sur
+#appengine: un serveur distant.
+ton ordinateur.
+Le résultat s'affiche sous le code.
+
+Ces programmes d'exemple illustrent différents aspects de Go. Les programmes du tour sont des points de départ pour tes propres expérimentations.
+
+Modifie le programme et exécute-le à nouveau.
+
+Quand tu cliques sur [[javascript:highlightAndClick("#format")][Format]]
+(raccourci : `Ctrl` + `Enter`), le texte dans l'éditeur est formaté avec l'outil
+[[/cmd/gofmt/][gofmt]]. Tu peux activer ou désactiver la coloration syntaxique
+en cliquant sur le bouton [[javascript:highlightAndClick(".syntax-checkbox")][syntax]].
+
+Quand tu es prêt à continuer, clique sur la [[javascript:highlightAndClick(".next-page")][flèche droite]] ci-dessous ou appuie sur la touche `PageDown`.
+
+.play welcome/hello.go
+
+* Go en local
+
+Le tour est disponible dans d'autres langues :
+
+- [[https://go-tour-br.appspot.com/][Portugais brésilien — Português do Brasil]]
+- [[https://go-tour-ca.appspot.com/][Catalan — Català]]
+- [[https://tour.go-zh.org/][Chinois simplifié — 中文（简体）]]
+- [[https://go-tour-cz.appspot.com/][Tchèque — Česky]]
+- [[https://go-tour-id2.appspot.com/][Indonésien — Bahasa Indonesia]]
+- [[https://go-tour-jp.appspot.com/][Japonais — 日本語]]
+- [[https://go-tour-pl1.appspot.com/][Polonais — Polski]]
+- [[https://go-tour-lat.appspot.com/][Espagnol — Español]]
+- [[https://go-tour-th.appspot.com/][Thaï — ภาษาไทย]]
+- [[https://go-tour-ua-translation.lm.r.appspot.com/][Ukrainien — Українською]]
+
+Clique sur le bouton [[javascript:highlightAndClick(".next-page")]["next"]] ou appuie sur `PageDown` pour continuer.
+
+#appengine: * Go hors ligne (optionnel)
+#appengine:
+#appengine: Ce tour est aussi disponible en tant que programme autonome que tu peux utiliser
+#appengine: sans accès à internet. Il compile et exécute les exemples de code sur
+#appengine: ta propre machine.
+#appengine:
+#appengine: Pour lancer le tour en local, tu devras d'abord
+#appengine: [[/doc/install][installer Go]] puis exécuter :
+#appengine:
+#appengine:   go install golang.org/x/website/tour@latest
+#appengine:
+#appengine: Un binaire `tour` sera placé dans le répertoire `bin` de ton
+#appengine: [[/cmd/go/#hdr-GOPATH_and_Modules][GOPATH]].
+#appengine: Quand tu lances le programme tour, il ouvre un navigateur web affichant
+#appengine: ta version locale du tour.
+#appengine:
+#appengine: Bien sûr, tu peux continuer le tour via ce site web.
+
+#appengine: * Le Go Playground
+#appengine:
+#appengine: Ce tour est construit sur le [[https://play.golang.org/][Go Playground]], un
+#appengine: service web qui tourne sur les serveurs de [[/][golang.org]].
+#appengine:
+#appengine: Le service reçoit un programme Go, le compile, l'édite et l'exécute dans un
+#appengine: sandbox, puis retourne la sortie.
+#appengine:
+#appengine: Il y a des limitations aux programmes pouvant tourner dans le playground :
+#appengine:
+#appengine: - Dans le playground, le temps commence au 2009-11-10 23:00:00 UTC (déterminer la signification de cette date est laissé en exercice au lecteur). Cela facilite la mise en cache des programmes en leur donnant une sortie déterministe.
+#appengine:
+#appengine: - Il existe aussi des limites sur le temps d'exécution, l'utilisation du CPU et de la mémoire, et le programme ne peut pas accéder à des hôtes réseau externes.
+#appengine:
+#appengine: Le playground utilise la dernière version stable de Go.
+#appengine:
+#appengine: Lis "[[/blog/playground][Inside the Go Playground]]" pour en savoir plus.
+#appengine:
+#appengine: .play welcome/sandbox.go
+
+* Félicitations
+
+Tu as terminé le premier module du tour !
+
+Clique maintenant sur [[javascript:highlightAndClick(".logo")][A Tour of Go]] pour découvrir ce que tu peux encore apprendre sur Go, ou va directement à la [[javascript:click('.next-page')][leçon suivante]].

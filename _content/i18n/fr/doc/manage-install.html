@@ -1,0 +1,133 @@
+<!--{
+    "Title": "Gérer les installations Go"
+}-->
+
+<p>
+Cette page décrit comment installer plusieurs versions de Go sur la même machine, ainsi que comment désinstaller Go.
+</p>
+
+<p>Pour d'autres contenus sur l'installation, tu pourrais être intéressé par :</p>
+<ul>
+<li><a href="/doc/install">Télécharger et installer</a> -- La méthode la plus simple pour être opérationnel.</li>
+<li><a href="/doc/install/source">Installer Go depuis les sources</a> -- Comment récupérer les sources, les compiler sur ta machine et les exécuter.</li>
+</ul>
+
+<h2 id="installing-multiple">Installer plusieurs versions de Go</h2>
+
+<p>
+Tu peux installer plusieurs versions de Go sur la même machine. Par exemple, tu pourrais vouloir tester ton code sur plusieurs versions de Go. Pour la liste des versions installables de cette façon, consulte la <a href="/dl/">page de téléchargement</a>.
+</p>
+
+<p>
+<strong>Note :</strong> pour utiliser la méthode décrite ici, tu devras avoir <a href="https://git-scm.com/">git</a> installé.
+</p>
+
+<p>
+Pour installer des versions supplémentaires de Go, exécute la <a href="/cmd/go/#hdr-Compile_and_install_packages_and_dependencies">commande <code>go install</code></a> en spécifiant l'emplacement de téléchargement de la version à installer. L'exemple suivant illustre cela avec la version 1.10.7 :
+</p>
+
+<pre>
+$ go install golang.org/dl/go1.10.7@latest
+$ go1.10.7 download
+</pre>
+
+<p>
+Pour exécuter des commandes <code>go</code> avec la version nouvellement téléchargée, ajoute le numéro de version à la commande <code>go</code>, comme suit :
+</p>
+
+<pre>
+$ go1.10.7 version
+go version go1.10.7 linux/amd64
+</pre>
+
+<p>
+Lorsque tu as plusieurs versions installées, tu peux découvrir où chacune est installée en consultant la valeur <code>GOROOT</code> de la version. Par exemple, exécute une commande telle que :
+</p>
+
+<pre>
+$ go1.10.7 env GOROOT
+</pre>
+
+<p>
+Pour désinstaller une version téléchargée, supprime simplement le répertoire indiqué par sa variable d'environnement <code>GOROOT</code> ainsi que le binaire goX.Y.Z.
+</p>
+
+<h2 id="uninstalling">Désinstaller Go</h2>
+
+<p>
+Tu peux supprimer Go de ton système en suivant les étapes décrites dans cette page.
+</p>
+
+<h3 id="remove-config">Supprimer la configuration et les données utilisateur</h3>
+
+<p>
+Go stocke la configuration utilisateur dans le répertoire <code>go</code> du répertoire de configuration utilisateur,
+tel que renvoyé par <a href="/pkg/os#UserConfigDir"><code>os.UserConfigDir</code></a>.
+On peut aussi le trouver comme le répertoire contenant le fichier de configuration renvoyé par <code>go env GOENV</code>.
+</p>
+
+<p>
+Go stocke les artefacts de compilation intermédiaires dans le répertoire renvoyé par <code>go env GOCACHE</code>.
+Ils peuvent être supprimés avec <code>go clean -cache</code>.
+</p>
+
+<p>
+Go stocke les dépendances téléchargées dans le répertoire renvoyé par <code>go env GOMODCACHE</code>.
+Elles peuvent être supprimées avec <code>go clean -modcache</code>.
+</p>
+
+<h3 id="linux-mac-bsd">Linux / macOS / FreeBSD</h3>
+
+<ol>
+
+<li>Supprime le répertoire go.
+
+<p>
+Il s'agit généralement de /usr/local/go.
+</p>
+
+</li>
+
+<li>Retire le répertoire bin de Go de ta variable d'environnement <code>PATH</code>.
+
+<p>
+Sous Linux et FreeBSD, édite /etc/profile ou $HOME/.profile. Si tu as installé Go avec le package macOS, supprime le fichier /etc/paths.d/go.
+</p>
+
+</li>
+
+</ol>
+
+<h3 id="windows">Windows</h3>
+
+<p>
+La façon la plus simple de supprimer Go est via Ajout/Suppression de programmes dans le panneau de configuration Windows :
+</p>
+
+<ol>
+
+<li>Dans le Panneau de configuration, double-clique sur <strong>Ajout/Suppression de programmes</strong>.</li>
+<li>Dans <strong>Ajout/Suppression de programmes</strong>, sélectionne <strong>Go Programming Language,</strong> clique sur Désinstaller, puis suis les instructions.</li>
+
+</ol>
+
+<p>
+Pour supprimer Go avec des outils, tu peux aussi utiliser la ligne de commande :
+</p>
+
+<ul>
+
+<li>Désinstalle via la ligne de commande en exécutant la commande suivante :
+
+<pre>
+msiexec /x go{{version}}.windows-{{cpu-arch}}.msi /q
+</pre>
+
+<p>
+
+<strong>Note :</strong> utiliser ce processus de désinstallation sous Windows supprimera automatiquement les variables d'environnement Windows créées lors de l'installation d'origine.
+</p>
+
+</li>
+
+</ul>

@@ -1,0 +1,54 @@
+- name: Jaime Enrique Garcia Lopez
+  title: Senior Software Development Manager
+  company: Capital One
+  quote: |-
+    "À l'époque, aucun membre de l'équipe ne connaissait Go, mais
+    <strong>en un mois, tout le monde écrivait en Go</strong> et nous
+    construisions les endpoints. C'est la flexibilité, la facilité d'utilisation,
+    et le concept vraiment intéressant derrière Go (la façon dont Go gère la concurrence
+    native, le garbage collection, et bien sûr sécurité+vitesse) qui nous ont
+    motivés pendant le développement. Et impossible de résister à cette adorable mascotte !"
+- name: Clayton Coleman
+  title: Lead Engineer, Open Shift
+  company: RedHat
+  quote: |-
+    "<strong>Un langage petit qui compile vite rend les développeurs heureux.</strong>
+    Le langage Go est petit, compile très rapidement, et de ce fait il permet à
+    ton esprit de se concentrer sur le vrai problème plutôt que sur l'outil utilisé pour
+    le résoudre. Les cycles code, test, debug sont si rapides qu'on oublie qu'on ne
+    travaille pas avec un langage interprété. En regardant notre code, on voit
+    <strong>moins de code générique et plus de logique métier.</strong>"
+- name: Matt Boyle
+  title: Lead Software Engineer
+  company: Curve
+  quote: |-
+    "<strong>Go possède d'excellentes caractéristiques pour la scalabilité et les services
+    écrits avec Go ont généralement une empreinte mémoire très faible.</strong>
+    Comme le code est compilé en un binaire statique unique, les services peuvent aussi
+    être conteneurisés facilement, ce qui simplifie la construction et le déploiement. Ces
+    attributs font de <strong>Go un choix idéal pour les entreprises développant des
+    microservices</strong>, car tu peux facilement déployer dans un environnement
+    hautement disponible et évolutif comme Kubernetes."
+- name: Bala Natarajan
+  title: Sr. Director of Engineering, Developer Experience
+  company: PayPal
+  quote: |-
+    "Dans nos environnements rigoureusement gérés où nous exécutons du code Go,
+    <strong>nous avons observé une réduction du CPU d'environ 10%</strong>
+    avec un code plus propre et plus maintenable."
+- name: Benjamin Cane
+  title: Vice President and Principal Engineer
+  company: American Express
+  quote: |-
+    "Les outils ont toujours été un problème avec notre base de code historique... mais nous avons
+     constaté que Go dispose d'excellents outils, ainsi que de frameworks intégrés de tests,
+     benchmarking et profiling. Il est facile d'écrire des applications efficaces et résilientes.
+     <strong>Après avoir travaillé avec Go, la plupart de nos développeurs ne veulent plus
+     revenir à d'autres langages.</strong>"
+- name: John Biggs and Ben Popper
+  title:
+  company: Stack Overflow
+  quote: |-
+    "...lorsqu'un langage de programmation est conçu exactement pour l'environnement que la plupart
+     d'entre nous utilise aujourd'hui, c'est-à-dire des serveurs cloud évolutifs optimisés pour
+      la performance, beaucoup de choses peuvent bien se passer."

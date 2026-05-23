@@ -1,0 +1,140 @@
+main:
+  - name: Pourquoi Go
+    url: /solutions/
+    children:
+      - name: Études de cas
+        explanation: Problèmes courants que les entreprises résolvent avec Go
+        url: /solutions/case-studies
+      - name: Cas d'usage
+        explanation: Témoignages sur comment et pourquoi les entreprises utilisent Go
+        url: /solutions/use-cases
+      - name: Sécurité
+        explanation: Comment Go peut t'aider à rester sécurisé par défaut
+        url: /security/
+  - name: Apprendre
+    url: /learn/
+  - name: Docs
+    url: /doc/
+    children:
+      - name: Spécification Go
+        explanation: La spécification officielle du langage Go
+        url: /ref/spec
+      - name: Manuel utilisateur Go
+        explanation: Une introduction complète au développement logiciel avec Go
+        url: /doc
+      - name: Bibliothèque standard
+        explanation: Documentation de référence de la bibliothèque standard Go
+        url: https://pkg.go.dev/std
+      - name: Notes de version
+        explanation: Découvre les nouveautés de chaque version de Go
+        url: /doc/devel/release
+      - name: Effective Go
+        explanation: Conseils pour écrire du code Go clair, performant et idiomatique
+        url: /doc/effective_go
+  - name: Packages
+    url: https://pkg.go.dev
+  - name: Communauté
+    url: /example/
+    children:
+      - name: Conférences enregistrées
+        explanation: Vidéos d'événements passés
+        url: /talks/
+      - name: Meetups
+        explanation: Rencontre d'autres développeurs Go près de chez toi
+        url: https://www.meetup.com/pro/go
+        external: true
+      - name: Conférences
+        explanation: Apprends et échange avec des développeurs Go du monde entier
+        url: /wiki/Conferences
+        external: true
+      - name: Blog Go
+        explanation: Le blog officiel du projet Go.
+        url: /blog
+      - name: Projet Go
+        explanation: Obtiens de l'aide et reste informé sur Go
+        url: /help
+      - name: Se connecter
+        socialIconsList:
+          [
+            {
+              img: google-groups.svg,
+              name: google-groups,
+              url: 'https://groups.google.com/g/golang-nuts',
+            },
+            {img: github.svg, darkImg: github-light.svg, name: github, url: 'https://github.com/golang'},
+            {img: bluesky.svg, name: bluesky, url: 'https://bsky.app/profile/golang.org'},
+            {img: mastodon.svg, name: mastodon, url: 'https://hachyderm.io/@golang'},
+            {img: twitter.svg, name: twitter, url: 'https://twitter.com/golang'},
+            {img: reddit.svg, name: reddit ,url: 'https://www.reddit.com/r/golang/'},
+            {img: slack.svg, name: slack, url: 'https://invite.slack.golangbridge.org/'},
+            {
+              img: stack-overflow.svg,
+              name: stack-overflow,
+              url: 'https://stackoverflow.com/tags/go',
+            },
+          ]
+
+footer:
+  - name: Pourquoi Go
+    url: /solutions/
+    children:
+      - name: Cas d'usage
+        url: /solutions/use-cases
+      - name: Études de cas
+        url: /solutions/case-studies
+
+  - name: Premiers pas
+    url: /learn/
+    children:
+      - name: Playground
+        url: /play
+      - name: Tour
+        url: /tour/
+      - name: Stack Overflow
+        url: https://stackoverflow.com/questions/tagged/go?tab=Newest
+      - name: Aide
+        url: /help/
+
+  - name: Packages
+    url: https://pkg.go.dev
+    children:
+      - name: Bibliothèque standard
+        url: /pkg/
+      - name: À propos des packages Go
+        url: https://pkg.go.dev/about
+
+  - name: À propos
+    url: /project
+    children:
+      - name: Téléchargement
+        url: /dl/
+      - name: Blog
+        url: /blog/
+      - name: Suivi des problèmes
+        url: https://github.com/golang/go/issues
+      - name: Notes de version
+        url: /doc/devel/release
+      - name: Charte graphique
+        url: /brand
+      - name: Code de conduite
+        url: /conduct
+
+  - name: Se connecter
+    url: /wiki/#the-go-community
+    children:
+      - name: Bluesky
+        url: https://bsky.app/profile/golang.org
+      - name: Mastodon
+        url: https://hachyderm.io/@golang
+      - name: Twitter
+        url: https://www.twitter.com/golang
+      - name: GitHub
+        url: https://github.com/golang
+      - name: Slack
+        url: https://invite.slack.golangbridge.org/
+      - name: r/golang
+        url: https://reddit.com/r/golang
+      - name: Meetup
+        url: https://www.meetup.com/pro/go
+      - name: Golang Weekly
+        url: https://golangweekly.com/

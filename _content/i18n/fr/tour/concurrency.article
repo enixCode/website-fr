@@ -1,0 +1,207 @@
+Concurrence
+Go fournit des constructions de concurrence dans le langage lui-même. Cette leçon les présente et donne quelques exemples de leur utilisation.
+
+The Go Authors
+https://golang.org
+
+* Goroutines
+
+Une _goroutine_ est un thread léger géré par le runtime Go.
+
+	go f(x, y, z)
+
+démarre une nouvelle goroutine qui exécute
+
+	f(x, y, z)
+
+L'évaluation de `f`, `x`, `y` et `z` se produit dans la goroutine courante et l'exécution de `f` se produit dans la nouvelle goroutine.
+
+Les goroutines s'exécutent dans le même espace d'adressage, donc l'accès à la mémoire partagée doit être synchronisé. Le package [[/pkg/sync/][`sync`]] fournit des primitives utiles, même si tu n'en auras pas beaucoup besoin en Go car il existe d'autres primitives. (Voir la prochaine slide.)
+
+.play concurrency/goroutines.go
+
+* Channels
+
+Les channels sont un conduit typé à travers lequel tu peux envoyer et recevoir des valeurs avec l'opérateur channel, `<-`.
+
+	ch <- v    // Send v to channel ch.
+	v := <-ch  // Receive from ch, and
+	           // assign value to v.
+
+(Les données circulent dans le sens de la flèche.)
+
+Comme les maps et les slices, les channels doivent être créés avant utilisation :
+
+	ch := make(chan int)
+
+Par défaut, les envois et les réceptions bloquent jusqu'à ce que l'autre côté soit prêt. Cela permet aux goroutines de se synchroniser sans verrous explicites ni variables de condition.
+
+L'exemple de code additionne les nombres dans une slice, en distribuant le travail entre deux goroutines.
+Une fois que les deux goroutines ont terminé leur calcul, le résultat final est calculé.
+
+.play concurrency/channels.go
+
+* Channels bufferisés
+
+Les channels peuvent être _bufferisés_. Fournis la longueur du buffer comme second argument à `make` pour initialiser un channel bufferisé :
+
+	ch := make(chan int, 100)
+
+Les envois vers un channel bufferisé bloquent uniquement quand le buffer est plein. Les réceptions bloquent quand le buffer est vide.
+
+Modifie l'exemple pour remplir le buffer en excès et observe ce qui se passe.
+
+.play concurrency/buffered-channels.go
+
+* Range et Close
+
+Un émetteur peut fermer (`close`) un channel pour indiquer qu'aucune valeur ne sera plus envoyée. Les récepteurs peuvent tester si un channel a été fermé en assignant un second paramètre à l'expression de réception : après
+
+	v, ok := <-ch
+
+`ok` vaut `false` s'il n'y a plus de valeurs à recevoir et que le channel est fermé.
+
+La boucle `for`i`:=`range`c` reçoit des valeurs depuis le channel jusqu'à ce qu'il soit fermé.
+
+*Remarque :* Seul l'émetteur doit fermer un channel, jamais le récepteur. Envoyer sur un channel fermé provoquera une panique.
+
+*Autre*remarque :* Les channels ne sont pas comme des fichiers ; tu n'as généralement pas besoin de les fermer. La fermeture n'est nécessaire que lorsque le récepteur doit être informé qu'il n'y aura plus de valeurs, par exemple pour terminer une boucle `range`.
+
+.play concurrency/range-and-close.go
+
+* Select
+
+L'instruction `select` permet à une goroutine d'attendre sur plusieurs opérations de communication.
+
+Un `select` bloque jusqu'à ce que l'un de ses cas puisse s'exécuter, puis il exécute ce cas. Il en choisit un au hasard si plusieurs sont prêts.
+
+.play concurrency/select.go
+
+* Sélection par défaut
+
+Le cas `default` dans un `select` s'exécute si aucun autre cas n'est prêt.
+
+Utilise un cas `default` pour tenter un envoi ou une réception sans bloquer :
+
+	select {
+	case i := <-c:
+		// use i
+	default:
+		// receiving from c would block
+	}
+
+.play concurrency/default-selection.go
+
+* Exercice : Arbres binaires équivalents
+
+Il peut exister de nombreux arbres binaires différents stockant la même séquence de valeurs. Par exemple, voici deux arbres binaires stockant la séquence 1, 1, 2, 3, 5, 8, 13.
+
+.image /tour/static/img/tree.png
+
+Une fonction pour vérifier si deux arbres binaires stockent la même séquence est assez complexe dans la plupart des langages. Nous allons utiliser la concurrence et les channels de Go pour écrire une solution simple.
+
+Cet exemple utilise le package `tree`, qui définit le type :
+
+	type Tree struct {
+		Left  *Tree
+		Value int
+		Right *Tree
+	}
+
+
+Suite de la description sur la [[javascript:click('.next-page')][page suivante]].
+
+* Exercice : Arbres binaires équivalents
+
+*1.* Implémente la fonction `Walk`.
+
+*2.* Teste la fonction `Walk`.
+
+La fonction `tree.New(k)` construit un arbre binaire de structure aléatoire (mais toujours trié) contenant les valeurs `k`, `2k`, `3k`, ..., `10k`.
+
+Crée un nouveau channel `ch` et lance le parcours :
+
+	go Walk(tree.New(1), ch)
+
+Puis lis et affiche 10 valeurs depuis le channel. Ce devrait être les nombres 1, 2, 3, ..., 10.
+
+*3.* Implémente la fonction `Same` en utilisant `Walk` pour déterminer si `t1` et `t2` stockent les mêmes valeurs.
+
+*4.* Teste la fonction `Same`.
+
+`Same(tree.New(1),`tree.New(1))` doit retourner true, et `Same(tree.New(1),`tree.New(2))` doit retourner false.
+
+La documentation de `Tree` se trouve [[https://godoc.org/golang.org/x/tour/tree#Tree][ici]].
+
+.play concurrency/exercise-equivalent-binary-trees.go
+
+* sync.Mutex
+
+On a vu que les channels sont parfaits pour la communication entre goroutines.
+
+Mais que faire si on n'a pas besoin de communication ? Et si on veut juste s'assurer qu'une seule
+goroutine peut accéder à une variable à la fois pour éviter les conflits ?
+
+Ce concept s'appelle l'_exclusion_mutuelle_, et le nom conventionnel de la structure de données qui la fournit est _mutex_.
+
+La bibliothèque standard de Go fournit l'exclusion mutuelle avec
+[[/pkg/sync/#Mutex][`sync.Mutex`]] et ses deux méthodes :
+
+- `Lock`
+- `Unlock`
+
+On peut définir un bloc de code à exécuter en exclusion mutuelle en l'entourant
+d'un appel à `Lock` et `Unlock` comme indiqué sur la méthode `Inc`.
+
+On peut aussi utiliser `defer` pour s'assurer que le mutex sera déverrouillé, comme dans la méthode `Value`.
+
+.play concurrency/mutex-counter.go
+
+* Exercice : Web Crawler
+
+Dans cet exercice tu vas utiliser les fonctionnalités de concurrence de Go pour paralléliser un web crawler.
+
+Modifie la fonction `Crawl` pour récupérer des URLs en parallèle sans récupérer deux fois la même URL.
+
+_Indice_ : tu peux conserver un cache des URLs déjà récupérées dans une map, mais les maps seules ne sont pas
+sûres pour un usage concurrent !
+
+.play concurrency/exercise-web-crawler.go
+
+* Et maintenant...
+
+#appengine: Tu peux commencer par
+#appengine: [[/doc/install/][installer Go]].
+
+#appengine: Une fois Go installé, la
+La
+[[/doc/][documentation Go]] est un excellent point de
+#appengine: départ.
+départ.
+Elle contient des références, des tutoriels, des vidéos et bien plus encore.
+
+Pour apprendre à organiser et travailler avec du code Go, lis [[/doc/code][How to Write Go Code]].
+
+Si tu as besoin d'aide avec la bibliothèque standard, consulte la [[/pkg/][référence des packages]]. Pour de l'aide sur le langage lui-même, tu pourrais être surpris de constater que la [[/ref/spec][spécification du langage]] est tout à fait lisible.
+
+Pour explorer davantage le modèle de concurrence de Go, regarde
+[[https://www.youtube.com/watch?v=f6kdp27TYZs][Go Concurrency Patterns]]
+([[/talks/2012/concurrency.slide][slides]])
+et
+[[https://www.youtube.com/watch?v=QDDwwePbDtw][Advanced Go Concurrency Patterns]]
+([[/talks/2013/advconc.slide][slides]])
+et lis le
+[[/doc/codewalk/sharemem/][Share Memory by Communicating]]
+codewalk.
+
+Pour commencer à écrire des applications web, regarde
+[[https://vimeo.com/53221558][A simple programming environment]]
+([[/talks/2012/simple.slide][slides]])
+et lis le tutoriel
+[[/doc/articles/wiki/][Writing Web Applications]].
+
+Le codewalk [[/doc/codewalk/functions/][First Class Functions in Go]] offre une perspective intéressante sur les types de fonctions en Go.
+
+Le [[/blog/][Go Blog]] dispose d'une grande archive d'articles informatifs sur Go.
+
+Visite [[/][la page d'accueil de Go]] pour en savoir plus.

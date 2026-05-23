@@ -1,0 +1,228 @@
+Packages, variables et fonctions.
+Découvre les composants de base de tout programme Go.
+
+The Go Authors
+https://golang.org
+
+* Packages
+
+Tout programme Go est composé de packages.
+
+Les programmes démarrent dans le package `main`.
+
+Ce programme utilise les packages dont les chemins d'import sont `"fmt"` et `"math/rand"`.
+
+Par convention, le nom du package est identique au dernier élément du chemin d'import. Par exemple, le package `"math/rand"` comprend des fichiers qui commencent par l'instruction `package`rand`.
+
+.play basics/packages.go
+
+* Imports
+
+Ce code regroupe les imports dans une instruction d'import entre parenthèses, dite "factorisée".
+
+Tu peux aussi écrire plusieurs instructions d'import séparées, comme :
+
+	import "fmt"
+	import "math"
+
+Mais il est préférable d'utiliser l'instruction d'import factorisée.
+
+.play basics/imports.go
+
+* Noms exportés
+
+En Go, un nom est exporté s'il commence par une majuscule.
+Par exemple, `Pizza` est un nom exporté, tout comme `Pi`, exporté depuis
+le package `math`.
+
+`pizza` et `pi` ne commencent pas par une majuscule, donc ils ne sont pas exportés.
+
+Lors de l'import d'un package, tu ne peux faire référence qu'à ses noms exportés.
+Les noms "non exportés" ne sont pas accessibles depuis l'extérieur du package.
+
+Exécute le code. Observe le message d'erreur.
+
+Pour corriger l'erreur, renomme `math.pi` en `math.Pi` et réessaie.
+
+.play basics/exported-names.go
+
+* Fonctions
+
+Une fonction peut prendre zéro ou plusieurs arguments.
+
+Dans cet exemple, `add` prend deux paramètres de type `int`.
+
+Remarque que le type vient _après_ le nom de la variable.
+
+(Pour mieux comprendre pourquoi les types sont écrits ainsi, voir l'[[/blog/gos-declaration-syntax][article sur la syntaxe de déclaration de Go]].)
+
+.play basics/functions.go
+
+* Fonctions (suite)
+
+Quand deux paramètres de fonction nommés consécutifs partagent le même type, tu peux omettre le type sur tous sauf le dernier.
+
+Dans cet exemple, nous avons raccourci
+
+	x int, y int
+
+en
+
+	x, y int
+
+.play basics/functions-continued.go
+
+* Résultats multiples
+
+Une fonction peut retourner plusieurs résultats.
+
+La fonction `swap` retourne deux strings.
+
+.play basics/multiple-results.go
+
+* Valeurs de retour nommées
+
+Les valeurs de retour de Go peuvent être nommées. Si c'est le cas, elles sont traitées comme des variables définies en haut de la fonction.
+
+Ces noms doivent servir à documenter la signification des valeurs de retour.
+
+Une instruction `return` sans arguments retourne les valeurs de retour nommées. C'est ce qu'on appelle un retour "naked".
+
+Les instructions de retour naked ne doivent être utilisées que dans des fonctions courtes, comme dans l'exemple présenté ici. Elles peuvent nuire à la lisibilité dans des fonctions plus longues.
+
+.play basics/named-results.go
+
+* Variables
+
+L'instruction `var` déclare une liste de variables ; comme dans les listes d'arguments de fonction, le type vient en dernier.
+
+Une instruction `var` peut se trouver au niveau du package ou de la fonction. On voit les deux dans cet exemple.
+
+.play basics/variables.go
+
+* Variables avec initialiseurs
+
+Une déclaration var peut inclure des initialiseurs, un par variable.
+
+Si un initialiseur est présent, le type peut être omis ; la variable prendra le type de l'initialiseur.
+
+.play basics/variables-with-initializers.go
+
+* Déclarations de variables courtes
+
+À l'intérieur d'une fonction, l'instruction d'assignation courte `:=` peut être utilisée à la place d'une déclaration `var` avec type implicite.
+
+En dehors d'une fonction, chaque instruction commence par un mot-clé (`var`, `func`, etc.), donc la construction `:=` n'est pas disponible.
+
+.play basics/short-variable-declarations.go
+
+* Types de base
+
+Les types de base de Go sont :
+
+	bool
+
+	string
+
+	int  int8  int16  int32  int64
+	uint uint8 uint16 uint32 uint64 uintptr
+
+	byte // alias pour uint8
+
+	rune // alias pour int32
+	     // représente un point de code Unicode
+
+	float32 float64
+
+	complex64 complex128
+
+L'exemple montre des variables de plusieurs types,
+et aussi que les déclarations de variables peuvent être "factorisées" en blocs,
+comme avec les instructions d'import.
+
+Les types `int`, `uint` et `uintptr` font généralement 32 bits de large sur les systèmes 32 bits et 64 bits sur les systèmes 64 bits.
+Quand tu as besoin d'une valeur entière, utilise `int` sauf si tu as une raison particulière d'utiliser un type entier de taille fixe ou non signé.
+
+.play basics/basic-types.go
+
+* Valeurs zéro
+
+Les variables déclarées sans valeur initiale explicite reçoivent leur
+_valeur_zéro_.
+
+La valeur zéro est :
+
+- `0` pour les types numériques,
+- `false` pour le type booléen, et
+- `""` (la chaîne vide) pour les strings.
+
+.play basics/zero.go
+
+* Conversions de types
+
+L'expression `T(v)` convertit la valeur `v` vers le type `T`.
+
+Quelques conversions numériques :
+
+	var i int = 42
+	var f float64 = float64(i)
+	var u uint = uint(f)
+
+Ou, plus simplement :
+
+	i := 42
+	f := float64(i)
+	u := uint(f)
+
+Contrairement au C, en Go l'assignation entre éléments de types différents exige
+une conversion explicite.
+Essaie de supprimer les conversions `float64` ou `uint` dans l'exemple et observe ce qui se passe.
+
+.play basics/type-conversions.go
+
+* Inférence de types
+
+Lors de la déclaration d'une variable sans type explicite (via la syntaxe `:=` ou l'expression `var`=`), le type de la variable est inféré depuis la valeur à droite.
+
+Quand le membre droit de la déclaration est typé, la nouvelle variable est de ce même type :
+
+	var i int
+	j := i // j est un int
+
+Mais quand le membre droit contient une constante numérique sans type, la nouvelle variable peut être un `int`, `float64` ou `complex128` selon la précision de la constante :
+
+	i := 42           // int
+	f := 3.142        // float64
+	g := 0.867 + 0.5i // complex128
+
+Essaie de changer la valeur initiale de `v` dans l'exemple et observe comment son type est affecté.
+
+.play basics/type-inference.go
+
+* Constantes
+
+Les constantes sont déclarées comme les variables, mais avec le mot-clé `const`.
+
+Les constantes peuvent être des valeurs de type caractère, string, booléen ou numérique.
+
+Les constantes ne peuvent pas être déclarées avec la syntaxe `:=`.
+
+.play basics/constants.go
+
+* Constantes numériques
+
+Les constantes numériques sont des _valeurs_ haute précision.
+
+Une constante sans type prend le type requis par son contexte.
+
+Essaie aussi d'afficher `needInt(Big)`.
+
+(Un `int` peut stocker au maximum un entier 64 bits, et parfois moins.)
+
+.play basics/numeric-constants.go
+
+* Félicitations !
+
+Tu as terminé cette leçon !
+
+Tu peux retourner à la liste des [[/tour/list][modules]] pour choisir ce que tu veux apprendre ensuite, ou continuer avec la [[javascript:click('.next-page')][leçon suivante]].

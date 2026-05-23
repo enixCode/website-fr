@@ -1,0 +1,467 @@
+<!--{
+	"Title": "Diagnostics",
+  	"Breadcrumb": true
+}-->
+
+<!--
+NOTE: In this document and others in this directory, the convention is to
+set fixed-width phrases with non-fixed-width spaces, as in
+<code>hello</code> <code>world</code>.
+Do not send CLs removing the interior tags from such phrases.
+-->
+
+<h2 id="introduction">Introduction</h2>
+
+<p>
+L'écosystème Go fournit un large ensemble d'APIs et d'outils pour
+diagnostiquer les problèmes de logique et de performance dans les programmes Go. Cette page
+résume les outils disponibles et aide les utilisateurs Go à choisir le bon
+pour leur problème spécifique.
+</p>
+
+<p>
+Les solutions de diagnostics peuvent être regroupées dans les catégories suivantes :
+</p>
+
+<ul>
+<li><strong>Profiling</strong> : Les outils de profiling analysent la complexité et les coûts d'un
+programme Go tels que son utilisation de la mémoire et les fonctions fréquemment appelées
+pour identifier les sections coûteuses d'un programme Go.</li>
+<li><strong>Tracing</strong> : Le tracing est un moyen d'instrumenter du code pour analyser la latence
+tout au long du cycle de vie d'un appel ou d'une requête utilisateur. Les traces fournissent une
+vue d'ensemble de la latence que chaque composant contribue à la latence totale
+dans un système. Les traces peuvent s'étendre sur plusieurs processus Go.</li>
+<li><strong>Debugging</strong> : Le debugging nous permet de mettre en pause un programme Go et d'examiner
+son exécution. L'état et le flux du programme peuvent être vérifiés avec le debugging.</li>
+<li><strong>Statistiques et événements du runtime</strong> : La collecte et l'analyse des statistiques et événements du runtime
+fournissent une vue d'ensemble de l'état de santé des programmes Go. Les pics et creux de métriques
+nous aident à identifier les changements de débit, d'utilisation et de performance.</li>
+</ul>
+
+<p>
+Remarque : Certains outils de diagnostics peuvent interférer les uns avec les autres. Par exemple, le
+profiling mémoire précis fausse les profils CPU, et le profiling de blocage de goroutine affecte la trace du scheduler. Utilise les outils isolément pour obtenir des informations plus précises.
+</p>
+
+<h2 id="profiling">Profiling</h2>
+
+<p>
+Le profiling est utile pour identifier les sections de code coûteuses ou fréquemment appelées.
+Le runtime Go fournit des <a href="/pkg/runtime/pprof/">
+données de profiling</a> dans le format attendu par l'
+<a href="https://github.com/google/pprof/blob/master/doc/README.md">outil de visualisation pprof</a>.
+Les données de profiling peuvent être collectées pendant les tests
+via <code>go</code> <code>test</code> ou via des endpoints rendus disponibles par le package <a href="/pkg/net/http/pprof/">
+net/http/pprof</a>. Les utilisateurs doivent collecter les données de profiling et utiliser les outils pprof pour filtrer
+et visualiser les chemins de code les plus importants.
+</p>
+
+<p>Profils prédéfinis fournis par le package <a href="/pkg/runtime/pprof">runtime/pprof</a> :</p>
+
+<ul>
+<li>
+<strong>cpu</strong> : Le profil CPU détermine où un programme passe
+son temps en consommant activement des cycles CPU (par opposition au temps passé à dormir ou à attendre des E/S).
+</li>
+<li>
+<strong>heap</strong> : Le profil heap rapporte les échantillons d'allocation mémoire ;
+utilisé pour surveiller l'utilisation mémoire courante et historique, et pour détecter les fuites mémoire.
+</li>
+<li>
+<strong>threadcreate</strong> : Le profil de création de threads rapporte les sections
+du programme qui mènent à la création de nouveaux threads OS.
+</li>
+<li>
+<strong>goroutine</strong> : Le profil goroutine rapporte les stack traces de toutes les goroutines courantes.
+</li>
+<li>
+<strong>block</strong> : Le profil block montre où les goroutines se bloquent en attendant sur des primitives de synchronisation
+(y compris les timer channels). Le profil block n'est pas activé par défaut ;
+utilise <code>runtime.SetBlockProfileRate</code> pour l'activer.
+</li>
+<li>
+<strong>mutex</strong> : Le profil mutex rapporte les contentions de verrous. Quand tu penses que ton
+CPU n'est pas pleinement utilisé à cause d'une contention de mutex, utilise ce profil. Le profil mutex
+n'est pas activé par défaut, voir <code>runtime.SetMutexProfileFraction</code> pour l'activer.
+</li>
+</ul>
+
+
+<p><strong>Quels autres profilers puis-je utiliser pour profiler des programmes Go ?</strong></p>
+
+<p>
+Sur Linux, les <a href="https://perf.wiki.kernel.org/index.php/Tutorial">outils perf</a>
+peuvent être utilisés pour profiler des programmes Go. Perf peut profiler
+et dérouler le code cgo/SWIG et le noyau, il peut donc être utile pour obtenir des informations sur
+les goulots d'étranglement de performance natifs/noyau. Sur macOS,
+la suite <a href="https://developer.apple.com/library/content/documentation/DeveloperTools/Conceptual/InstrumentsUserGuide/">Instruments</a>
+peut être utilisée pour profiler des programmes Go.
+</p>
+
+<p><strong>Puis-je profiler mes services en production ?</strong></p>
+
+<p>Oui. Il est sûr de profiler des programmes en production, mais activer
+certains profils (par exemple, le profil CPU) ajoute un coût. Tu dois t'attendre à observer
+une dégradation des performances. La pénalité de performance peut être estimée
+en mesurant la surcharge du profiler avant de l'activer en
+production.
+</p>
+
+<p>
+Tu peux vouloir profiler périodiquement tes services en production.
+En particulier dans un système avec plusieurs répliques d'un seul processus, sélectionner
+une réplique aléatoire périodiquement est une option sûre.
+Sélectionne un processus de production, profile-le pendant
+X secondes toutes les Y secondes et sauvegarde les résultats pour la visualisation et
+l'analyse ; puis recommence périodiquement. Les résultats peuvent être revus manuellement et/ou automatiquement
+pour trouver des problèmes.
+La collecte de profils peut interférer les uns avec les autres,
+il est donc recommandé de ne collecter qu'un seul profil à la fois.
+</p>
+
+<p>
+<strong>Quels sont les meilleurs moyens de visualiser les données de profiling ?</strong>
+</p>
+
+<p>
+Les outils Go fournissent une visualisation textuelle, en graphe et en <a href="http://valgrind.org/docs/manual/cl-manual.html">callgrind</a>
+des données de profil en utilisant
+<code><a href="https://github.com/google/pprof/blob/master/doc/README.md">go tool pprof</a></code>.
+Lis <a href="/blog/profiling-go-programs">Profiling Go programs</a>
+pour les voir en action.
+</p>
+
+<p>
+<img width="800" src="../images/diagnostics/pprof-text.png">
+<br>
+<small>Liste des appels les plus coûteux sous forme textuelle.</small>
+</p>
+
+<p>
+<img width="800" src="../images/diagnostics/pprof-dot.png">
+<br>
+<small>Visualisation des appels les plus coûteux sous forme de graphe.</small>
+</p>
+
+<p>La vue Weblist affiche les parties coûteuses du code source ligne par ligne dans
+une page HTML. Dans l'exemple suivant, 530 ms sont passés dans
+<code>runtime.concatstrings</code> et le coût de chaque ligne est présenté
+dans la liste.</p>
+
+<p>
+<img width="800" src="../images/diagnostics/pprof-weblist.png">
+<br>
+<small>Visualisation des appels les plus coûteux sous forme de weblist.</small>
+</p>
+
+<p>
+Une autre façon de visualiser les données de profil est un <a href="http://www.brendangregg.com/flamegraphs.html">flame graph</a>.
+Les flame graphs te permettent de te déplacer dans un chemin d'ascendance spécifique, afin de pouvoir zoomer
+sur des sections spécifiques du code.
+Le <a href="https://github.com/google/pprof">pprof upstream</a>
+prend en charge les flame graphs.
+</p>
+
+<p>
+<img width="800" src="../images/diagnostics/flame.png">
+<br>
+<small>Les flame graphs offrent une visualisation pour repérer les chemins de code les plus coûteux.</small>
+</p>
+
+<p><strong>Suis-je limité aux profils intégrés ?</strong></p>
+
+<p>
+En plus de ce que fournit le runtime, les utilisateurs Go peuvent créer
+leurs profils personnalisés via <a href="/pkg/runtime/pprof/#Profile">pprof.Profile</a>
+et utiliser les outils existants pour les examiner.
+</p>
+
+<p><strong>Puis-je servir les handlers du profiler (/debug/pprof/...) sur un chemin et un port différents ?</strong></p>
+
+<p>
+Oui. Le package <code>net/http/pprof</code> enregistre ses handlers sur le
+mux par défaut, mais tu peux aussi les enregistrer toi-même en utilisant les handlers
+exportés depuis le package.
+</p>
+
+<p>
+Par exemple, l'exemple suivant servira le handler pprof.Profile
+sur :7777 à /custom_debug_path/profile :
+</p>
+
+<p>
+<pre>
+package main
+
+import (
+	"log"
+	"net/http"
+	"net/http/pprof"
+)
+
+func main() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/custom_debug_path/profile", pprof.Profile)
+	log.Fatal(http.ListenAndServe(":7777", mux))
+}
+</pre>
+</p>
+
+<h2 id="tracing">Tracing</h2>
+
+<p>
+Le tracing est un moyen d'instrumenter du code pour analyser la latence tout au long du
+cycle de vie d'une chaîne d'appels. Go fournit le
+package <a href="https://godoc.org/golang.org/x/net/trace">golang.org/x/net/trace</a>
+comme backend de tracing minimal par nœud Go et fournit une bibliothèque
+d'instrumentation minimale avec un tableau de bord simple. Go fournit également
+un execution tracer pour tracer les événements du runtime dans un intervalle de temps.
+</p>
+
+<p>Le tracing nous permet de :</p>
+
+<ul>
+<li>Instrumenter et analyser la latence des applications dans un processus Go.</li>
+<li>Mesurer le coût d'appels spécifiques dans une longue chaîne d'appels.</li>
+<li>Déterminer les améliorations d'utilisation et de performance.
+Les goulots d'étranglement ne sont pas toujours évidents sans données de tracing.</li>
+</ul>
+
+<p>
+Dans les systèmes monolithiques, il est relativement facile de collecter des données de diagnostics
+depuis les blocs constitutifs d'un programme. Tous les modules vivent dans un
+processus et partagent des ressources communes pour rapporter les logs, les erreurs et d'autres
+informations de diagnostics. Une fois que ton système dépasse un seul processus et
+commence à devenir distribué, il devient plus difficile de suivre un appel depuis
+le serveur web front-end vers tous ses back-ends jusqu'à ce qu'une réponse soit
+renvoyée à l'utilisateur. C'est là que le tracing distribué joue un rôle important
+pour instrumenter et analyser tes systèmes en production.
+</p>
+
+<p>
+Le tracing distribué est un moyen d'instrumenter du code pour analyser la latence tout au long
+du cycle de vie d'une requête utilisateur. Quand un système est distribué et quand
+les outils de profiling et de debugging conventionnels ne passent pas à l'échelle, tu peux
+utiliser des outils de tracing distribué pour analyser les performances de tes requêtes
+utilisateur et RPC.
+</p>
+
+<p>Le tracing distribué nous permet de :</p>
+
+<ul>
+<li>Instrumenter et profiler la latence des applications dans un grand système.</li>
+<li>Tracer tous les RPCs dans le cycle de vie d'une requête utilisateur et voir les problèmes d'intégration
+qui ne sont visibles qu'en production.</li>
+<li>Déterminer les améliorations de performance applicables à nos systèmes.
+De nombreux goulots d'étranglement ne sont pas évidents avant la collecte de données de tracing.</li>
+</ul>
+
+<p>L'écosystème Go fournit diverses bibliothèques de tracing distribué par système de tracing
+et des bibliothèques indépendantes du backend.</p>
+
+
+<p><strong>Existe-t-il un moyen d'intercepter automatiquement chaque appel de fonction et de créer des traces ?</strong></p>
+
+<p>
+Go ne fournit pas de moyen d'intercepter automatiquement chaque appel de fonction et de créer
+des spans de trace. Tu dois instrumenter manuellement ton code pour créer, terminer et annoter les spans.
+</p>
+
+<p><strong>Comment propager les en-têtes de trace dans les bibliothèques Go ?</strong></p>
+
+<p>
+Tu peux propager les identifiants de trace et les tags dans le
+<a href="/pkg/context#Context"><code>context.Context</code></a>.
+Il n'existe pas encore de clé de trace canonique ni de représentation commune des en-têtes de trace
+dans l'industrie. Chaque fournisseur de tracing est responsable de fournir des utilitaires de propagation
+dans ses bibliothèques Go.
+</p>
+
+<p>
+<strong>Quels autres événements de bas niveau de la bibliothèque standard ou
+du runtime peuvent être inclus dans une trace ?</strong>
+</p>
+
+<p>
+La bibliothèque standard et le runtime essaient d'exposer plusieurs APIs supplémentaires
+pour notifier sur des événements internes de bas niveau. Par exemple,
+<a href="/pkg/net/http/httptrace#ClientTrace"><code>httptrace.ClientTrace</code></a>
+fournit des APIs pour suivre les événements de bas niveau dans le cycle de vie d'une requête sortante.
+Un effort continu est en cours pour récupérer les événements de bas niveau du runtime depuis
+l'execution tracer du runtime et permettre aux utilisateurs de définir et d'enregistrer leurs événements utilisateur.
+</p>
+
+<h2 id="debugging">Debugging</h2>
+
+<p>
+Le debugging est le processus d'identification de la raison pour laquelle un programme se comporte mal.
+Les debuggers nous permettent de comprendre le flux d'exécution et l'état courant d'un programme.
+Il existe plusieurs styles de debugging ; cette section se concentrera uniquement sur l'attachement
+d'un debugger à un programme et le debugging de core dump.
+</p>
+
+<p>Les utilisateurs Go utilisent principalement les debuggers suivants :</p>
+
+<ul>
+<li>
+<a href="https://github.com/derekparker/delve">Delve</a> :
+Delve est un debugger pour le langage de programmation Go. Il prend en charge
+les concepts du runtime de Go et les types intégrés. Delve
+essaie d'être un debugger fiable et complet pour les programmes Go.
+</li>
+<li>
+<a href="/doc/gdb">GDB</a> :
+Go fournit le support GDB via le compiler Go standard et Gccgo.
+La gestion de la pile, le threading et le runtime contiennent des aspects qui diffèrent
+suffisamment du modèle d'exécution attendu par GDB pour qu'ils puissent dérouter le
+debugger, même quand le programme est compilé avec gccgo. Même si
+GDB peut être utilisé pour déboguer des programmes Go, ce n'est pas idéal et peut
+créer de la confusion.
+</li>
+</ul>
+
+<p><strong>Dans quelle mesure les debuggers fonctionnent-ils avec les programmes Go ?</strong></p>
+
+<p>
+Le compiler <code>gc</code> effectue des optimisations telles que
+l'inlining de fonctions et la registerisation de variables. Ces optimisations
+rendent parfois le debugging avec des debuggers plus difficile. Un effort continu est en cours
+pour améliorer la qualité des informations DWARF générées pour
+les binaires optimisés. Jusqu'à ce que ces améliorations soient disponibles, nous recommandons
+de désactiver les optimisations lors de la construction du code en cours de débogage. La commande suivante
+construit un package sans optimisations du compiler :
+
+<p>
+<pre>
+$ go build -gcflags=all="-N -l"
+</pre>
+</p>
+
+Dans le cadre de l'effort d'amélioration, Go 1.10 a introduit un nouveau flag du compiler
+<code>-dwarflocationlists</code>. Ce flag incite le compiler à
+ajouter des listes de localisation qui aident les debuggers à travailler avec les binaires optimisés.
+La commande suivante construit un package avec des optimisations mais avec
+les listes de localisation DWARF :
+
+<p>
+<pre>
+$ go build -gcflags="-dwarflocationlists=true"
+</pre>
+</p>
+
+<p><strong>Quelle est l'interface utilisateur de debugger recommandée ?</strong></p>
+
+<p>
+Même si delve et gdb fournissent tous deux des CLIs, la plupart des intégrations d'éditeurs
+et des IDEs fournissent des interfaces utilisateur spécifiques au debugging.
+</p>
+
+<p><strong>Est-il possible de faire du debugging post-mortem avec des programmes Go ?</strong></p>
+
+<p>
+Un fichier core dump est un fichier qui contient le dump mémoire d'un processus en cours d'exécution
+et son état de processus. Il est principalement utilisé pour le debugging post-mortem d'un programme et pour comprendre son état
+pendant qu'il est encore en cours d'exécution. Ces deux cas font du debugging de core
+dumps un bon outil de diagnostic pour l'analyse post-mortem des services en production. Il est possible d'obtenir des fichiers core depuis des programmes Go et
+d'utiliser delve ou gdb pour déboguer, voir la page
+<a href="/wiki/CoreDumpDebugging">core dump debugging</a>
+pour un guide pas à pas.
+</p>
+
+<h2 id="runtime">Statistiques et événements du runtime</h2>
+
+<p>
+Le runtime fournit des statistiques et des rapports d'événements internes pour
+les utilisateurs afin de diagnostiquer les problèmes de performance et d'utilisation au
+niveau du runtime.
+</p>
+
+<p>
+Les utilisateurs peuvent surveiller ces statistiques pour mieux comprendre l'état de santé
+général et les performances des programmes Go.
+Quelques statistiques et états fréquemment surveillés :
+</p>
+
+<ul>
+<li><code><a href="/pkg/runtime/#ReadMemStats">runtime.ReadMemStats</a></code>
+rapporte les métriques liées à l'allocation
+heap et au garbage collection. Les statistiques mémoire sont utiles pour
+surveiller la quantité de ressources mémoire qu'un processus consomme,
+si le processus peut bien utiliser la mémoire, et pour détecter les fuites mémoire.</li>
+<li><code><a href="/pkg/runtime/debug/#ReadGCStats">debug.ReadGCStats</a></code>
+lit les statistiques sur le garbage collection.
+Il est utile de voir quelle proportion des ressources est dépensée sur les pauses GC.
+Il rapporte également une chronologie des pauses du garbage collector et les percentiles de durée de pause.</li>
+<li><code><a href="/pkg/runtime/debug/#Stack">debug.Stack</a></code>
+retourne la stack trace courante. La stack trace
+est utile pour voir combien de goroutines sont en cours d'exécution,
+ce qu'elles font, et si elles sont bloquées ou non.</li>
+<li><code><a href="/pkg/runtime/debug/#WriteHeapDump">debug.WriteHeapDump</a></code>
+suspend l'exécution de toutes les goroutines
+et te permet de dumper le heap vers un fichier. Un heap dump est un
+instantané de la mémoire d'un processus Go à un moment donné. Il contient tous
+les objets alloués ainsi que les goroutines, les finaliseurs, et plus encore.</li>
+<li><code><a href="/pkg/runtime#NumGoroutine">runtime.NumGoroutine</a></code>
+retourne le nombre de goroutines courantes.
+La valeur peut être surveillée pour voir si suffisamment de goroutines sont
+utilisées, ou pour détecter des fuites de goroutines.</li>
+</ul>
+
+<h3 id="execution-tracer">Execution tracer</h3>
+
+<p>Go est livré avec un execution tracer du runtime pour capturer un large éventail
+d'événements du runtime. La planification, les syscalls, le garbage collection,
+la taille du heap et d'autres événements sont collectés par le runtime et disponibles
+pour visualisation avec go tool trace. L'execution tracer est un outil
+pour détecter les problèmes de latence et d'utilisation. Tu peux examiner dans quelle mesure
+le CPU est utilisé, et quand le réseau ou les syscalls sont à l'origine de
+la préemption des goroutines.</p>
+
+<p>Le tracer est utile pour :</p>
+<ul>
+<li>Comprendre comment tes goroutines s'exécutent.</li>
+<li>Comprendre certains des événements clés du runtime, tels que les exécutions du GC.</li>
+<li>Identifier les exécutions mal parallélisées.</li>
+</ul>
+
+<p>Cependant, il n'est pas idéal pour identifier les points chauds tels que
+l'analyse de la cause d'une utilisation excessive de la mémoire ou du CPU.
+Utilise plutôt les outils de profiling en premier pour les résoudre.</p>
+
+<p>
+<img width="800" src="../images/diagnostics/tracer-lock.png">
+</p>
+
+<p>Ci-dessus, la visualisation go tool trace montre que l'exécution a bien démarré,
+puis s'est sérialisée. Cela suggère qu'il pourrait y avoir une contention de verrou sur une ressource partagée qui crée un goulot d'étranglement.</p>
+
+<p>Voir <a href="/cmd/trace/"><code>go</code> <code>tool</code> <code>trace</code></a>
+pour collecter et analyser les traces du runtime.
+</p>
+
+<h3 id="godebug">GODEBUG</h3>
+
+<p>Le runtime émet également des événements et des informations si
+la variable d'environnement <a href="/pkg/runtime/#hdr-Environment_Variables">GODEBUG</a>
+est définie en conséquence.</p>
+
+<ul>
+<li>GODEBUG=gctrace=1 affiche les événements du garbage collector à
+chaque collecte, en résumant la quantité de mémoire collectée
+et la durée de la pause.</li>
+<li>GODEBUG=inittrace=1 affiche un résumé du temps d'exécution et des informations d'allocation mémoire
+pour le travail d'initialisation de package terminé.</li>
+<li>GODEBUG=schedtrace=X affiche les événements de scheduling toutes les X millisecondes.</li>
+</ul>
+
+<p>La variable d'environnement GODEBUG peut être utilisée pour désactiver l'utilisation des
+extensions d'ensemble d'instructions dans la bibliothèque standard et le runtime.</p>
+
+<ul>
+<li>GODEBUG=cpu.all=off désactive l'utilisation de toutes les extensions
+d'ensemble d'instructions optionnelles.</li>
+<li>GODEBUG=cpu.<em>extension</em>=off désactive l'utilisation des instructions de l'
+extension d'ensemble d'instructions spécifiée.<br>
+<em>extension</em> est le nom en minuscules de l'extension d'ensemble d'instructions,
+tel que <em>sse41</em> ou <em>avx</em>.</li>
+</ul>

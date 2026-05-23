@@ -1,0 +1,217 @@
+<!--{
+	"Title": "Télécharger et installer",
+  "HideTOC": true,
+  "Sidebar": "bug",
+  "Breadcrumb": true
+}-->
+
+<p>
+  Télécharge et installe Go rapidement en suivant les étapes décrites ici.
+</p>
+<p>Pour d'autres contenus sur l'installation, tu pourrais être intéressé par :</p>
+<ul>
+  <li>
+    <a href="/doc/manage-install">Gérer les installations Go</a> -- Comment
+    installer plusieurs versions et désinstaller.
+  </li>
+  <li>
+    <a href="/doc/install/source">Installer Go depuis les sources</a> -- Comment
+    récupérer les sources, les compiler sur ta machine et les exécuter.
+  </li>
+</ul>
+<p class="DownloadBtn">
+  <a href="/dl/" id="start" class="btn download">
+    <span id="download-description" class="js-downloadDescription">
+      Télécharger
+    </span>
+  </a>
+</p>
+
+<h2 id="install">Installation de Go</h2>
+<p>
+  Sélectionne l'onglet correspondant au système d'exploitation de ton ordinateur
+  ci-dessous, puis suis les instructions d'installation.
+</p>
+<div id="os-install-tabs" class="TabSection js-tabSection">
+  <div id="os-install-tablist" class="TabSection-tabList" role="tablist">
+    <button
+      role="tab"
+      aria-selected="true"
+      aria-controls="linux-tab"
+      id="linux"
+      tabindex="0"
+      class="TabSection-tab active"
+    >
+      Linux
+      <img class="TabSection-underline" src="/images/icons/underline.svg" width="51" height="4" aria-hidden="true" />
+    </button>
+    <button
+      role="tab"
+      aria-selected="false"
+      aria-controls="mac-tab"
+      id="mac"
+      tabindex="-1"
+      class="TabSection-tab"
+    >
+      Mac
+      <img class="TabSection-underline" src="/images/icons/underline.svg" width="51" height="4" aria-hidden="true" />
+    </button>
+    <button
+      role="tab"
+      aria-selected="false"
+      aria-controls="windows-tab"
+      id="windows"
+      tabindex="-1"
+      class="TabSection-tab"
+    >
+      Windows
+      <img class="TabSection-underline" src="/images/icons/underline.svg" width="51" height="4" aria-hidden="true" />
+    </button>
+  </div>
+  <div
+    role="tabpanel"
+    id="linux-tab"
+    class="TabSection-tabPanel"
+    aria-labelledby="linux"
+  >
+    <ol>
+      <li>
+        <strong>Supprime toute installation Go précédente</strong> en supprimant le dossier /usr/local/go
+		(s'il existe), puis extrais l'archive que tu viens de télécharger dans /usr/local, ce qui crée un
+		nouvel arbre Go dans /usr/local/go :
+		<pre class="CopyPaste">
+      <span>$ rm -rf /usr/local/go &amp;&amp; tar -C /usr/local -xzf <span id="linux-filename">go1.14.3.linux-amd64.tar.gz</span></span>
+      <button aria-label="Copy and paste the code.">
+        <img class="CopyPaste-icon" src="/images/icons/copy-paste.svg" />
+        <img class="CopyPaste-icon CopyPaste-icon-dark" src="/images/icons/copy-paste-dark.svg" />
+      </button>
+    </pre>
+		<p>
+          (Tu devras peut-être exécuter chaque commande séparément avec les permissions nécessaires, en tant que root ou via <code>sudo</code>.)
+        </p>
+		<p>
+		  <strong>N'extrais pas</strong> l'archive dans un arbre /usr/local/go existant. Cette opération est connue pour
+		  produire des installations Go défectueuses.
+		 </p>
+      </li>
+      <li>
+        Ajoute /usr/local/go/bin à la variable d'environnement <code>PATH</code>.
+        <p>
+          Tu peux le faire en ajoutant la ligne suivante à ton fichier $HOME/.profile ou
+          /etc/profile (pour une installation à l'échelle du système) :
+        </p>
+        <pre class="CopyPaste">
+          <span>export PATH=$PATH:/usr/local/go/bin</span>
+          <button aria-label="Copy and paste the code.">
+            <img class="CopyPaste-icon" src="/images/icons/copy-paste.svg" />
+            <img class="CopyPaste-icon CopyPaste-icon-dark" src="/images/icons/copy-paste-dark.svg" />
+          </button>
+        </pre>
+        <p>
+          <strong>Note :</strong> les modifications apportées à un fichier de profil peuvent ne pas
+          prendre effet avant la prochaine connexion à ton ordinateur. Pour appliquer les
+          modifications immédiatement, exécute directement les commandes shell ou charge-les
+          depuis le profil avec une commande telle que
+          <code>source $HOME/.profile</code>.
+        </p>
+      </li>
+      <li>
+        Vérifie que Go est installé en ouvrant une invite de commande et en tapant
+        la commande suivante :
+        <pre class="CopyPaste">
+          <span>$ go version</span>
+          <button aria-label="Copy and paste the code.">
+            <img class="CopyPaste-icon" src="/images/icons/copy-paste.svg" />
+            <img class="CopyPaste-icon CopyPaste-icon-dark" src="/images/icons/copy-paste-dark.svg" />
+          </button>
+        </pre>
+      </li>
+      <li>Confirme que la commande affiche la version de Go installée.</li>
+    </ol>
+  </div>
+  <div
+    role="tabpanel"
+    id="mac-tab"
+    class="TabSection-tabPanel"
+    aria-labelledby="mac"
+    hidden
+  >
+    <ol>
+      <li>
+        Ouvre le fichier package que tu as téléchargé et suis les instructions pour
+        installer Go.
+        <p>
+          Le package installe la distribution Go dans /usr/local/go. Il devrait
+          ajouter le répertoire /usr/local/go/bin à ta variable d'environnement
+          <code>PATH</code>. Tu devras peut-être redémarrer les sessions Terminal
+          ouvertes pour que le changement prenne effet.
+        </p>
+      </li>
+      <li>
+        Vérifie que Go est installé en ouvrant une invite de commande et en tapant
+        la commande suivante :
+        <pre class="CopyPaste">
+          <span>$ go version</span>
+          <button aria-label="Copy and paste the code.">
+            <img class="CopyPaste-icon" src="/images/icons/copy-paste.svg" />
+            <img class="CopyPaste-icon CopyPaste-icon-dark" src="/images/icons/copy-paste-dark.svg" />
+          </button>
+        </pre>
+      </li>
+      <li>Confirme que la commande affiche la version de Go installée.</li>
+    </ol>
+  </div>
+  <div
+    role="tabpanel"
+    id="windows-tab"
+    class="TabSection-tabPanel"
+    aria-labelledby="windows"
+    hidden
+  >
+    <ol>
+      <li>
+        Ouvre le fichier MSI que tu as téléchargé et suis les instructions pour installer Go.
+        <p>
+          Par défaut, l'installateur installera Go dans <code>Program Files</code>
+          ou <code>Program Files (x86)</code>. Tu peux changer
+          l'emplacement si nécessaire. Après l'installation, tu devras fermer et
+          rouvrir toutes les invites de commande ouvertes pour que les modifications
+          de l'environnement effectuées par l'installateur soient prises en compte.
+        </p>
+      </li>
+      <li>
+        Vérifie que Go est installé.
+        <ol>
+          <li>
+            Sous <strong>Windows</strong>, clique sur le menu <strong>Démarrer</strong>.
+          </li>
+          <li>
+            Dans la zone de recherche du menu, tape <code>cmd</code>, puis appuie sur la
+            touche <strong>Entrée</strong>.
+          </li>
+          <li>
+            Dans la fenêtre d'invite de commande qui s'affiche, tape la commande
+            suivante :
+            <pre class="CopyPaste">
+              <span>$ go version</span>
+              <button aria-label="Copy and paste the code.">
+                <img class="CopyPaste-icon" src="/images/icons/copy-paste.svg" />
+                <img class="CopyPaste-icon CopyPaste-icon-dark" src="/images/icons/copy-paste-dark.svg" />
+              </button>
+            </pre>
+          </li>
+          <li>Confirme que la commande affiche la version de Go installée.</li>
+        </ol>
+      </li>
+    </ol>
+  </div>
+</div>
+<h2 id="code">Tu es prêt !</h2>
+<p class="DocInstall-footer">
+  Visite le
+  <a href="tutorial/getting-started.html">tutoriel de démarrage</a> pour écrire
+  du code Go simple. Il faut environ 10 minutes pour le compléter.
+</p>
+
+<script async src="/doc/download.js"></script>
+<script async src="/doc/hats.js"></script>

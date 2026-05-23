@@ -1,0 +1,2123 @@
+<!--{
+	"Title": "Un guide du garbage collector Go",
+	"Path":  "/doc/gc-guide",
+  	"Breadcrumb": true
+}-->
+
+<!--
+NOTE: Dans ce document et dans les autres de ce répertoire, la convention est
+d'encadrer les phrases en largeur fixe avec des espaces en largeur variable, comme
+<code>hello</code> <code>world</code>.
+N'envoie pas de CL pour supprimer les balises intérieures de ces phrases.
+-->
+
+<style>
+.gc-guide-graph {
+  display: inline-block;
+  position: relative;
+  width: 100%;
+  vertical-align: top;
+  overflow: hidden;
+}
+
+.gc-guide-graph-controls {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: space-around;
+  align-items: center;
+  width: 100%;
+}
+
+.gc-guide-graph-controls div {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  padding-left: 5px;
+  padding-right: 5px;
+  height: 24px;
+}
+
+.gc-guide-counter {
+  display: block;
+  overflow-x: hidden; /* Prevent automatic resizing, which makes the input jittery. */
+  width: 10em; /* Never contains more than 10 characters. */
+}
+
+.gc-guide-equation {
+  display: block;
+  text-align: center;
+}
+
+.gc-guide-note {
+  margin-left: 3em;
+}
+</style>
+
+<h2 id="Introduction">Introduction</h2>
+
+<p>
+Ce guide est destiné aux utilisateurs Go avancés qui souhaitent mieux comprendre
+les coûts de leur application en approfondissant leur connaissance du garbage collector Go.
+Il fournit également des conseils sur la façon dont ces utilisateurs peuvent exploiter
+ces connaissances pour améliorer l'utilisation des ressources de leurs applications.
+Aucune connaissance préalable du garbage collection n'est supposée, mais le guide
+suppose une familiarité avec le langage de programmation Go.
+</p>
+
+<p>
+Le langage Go prend en charge le stockage des valeurs Go ; dans la plupart des cas,
+un développeur Go n'a pas besoin de se soucier de l'endroit où ces valeurs sont
+stockées, ni de la raison.
+En pratique, cependant, ces valeurs doivent souvent être stockées dans la
+<b>mémoire physique</b> de l'ordinateur, qui est une ressource finie.
+Parce qu'elle est finie, la mémoire doit être gérée avec soin et recyclée afin
+d'éviter de l'épuiser lors de l'exécution d'un programme Go.
+C'est le rôle d'une implémentation Go que d'allouer et de recycler la mémoire
+selon les besoins.
+</p>
+
+<p>
+Un autre terme pour le recyclage automatique de la mémoire est le <b>garbage collection</b>.
+À un haut niveau, un garbage <i>collector</i> (ou GC, en abrégé) est un système qui
+recycle la mémoire au nom de l'application en identifiant les parties de la mémoire
+qui ne sont plus nécessaires.
+La bibliothèque standard Go fournit une bibliothèque runtime livrée avec chaque
+application, et cette bibliothèque runtime inclut un garbage collector.
+</p>
+
+<p>
+Note : l'existence d'un garbage collector tel que décrit dans ce guide n'est pas
+garantie par la <a href="/ref/spec">spécification Go</a>, seulement que le stockage
+sous-jacent des valeurs Go est géré par le langage lui-même.
+Cette omission est intentionnelle et permet l'utilisation de techniques de gestion
+mémoire radicalement différentes.
+</p>
+
+<p>
+Ce guide porte donc sur une implémentation spécifique du langage de programmation Go
+et <i>peut ne pas s'appliquer à d'autres implémentations</i>.
+Plus précisément, le guide suivant s'applique à la chaîne d'outils standard (le
+<code>gc</code> compilateur Go et ses outils).
+Gccgo et Gollvm utilisent tous deux une implémentation GC très similaire, donc
+de nombreux concepts s'appliquent, mais les détails peuvent varier.
+</p>
+
+<p>
+De plus, ce document est vivant et évoluera dans le temps pour refléter au mieux
+la dernière version de Go.
+Ce document décrit actuellement le garbage collector tel qu'il existe dans Go 1.19.
+</p>
+
+
+<h3 id="Where_Go_Values_Live">Où vivent les valeurs Go</h3>
+
+<p>
+Avant de plonger dans le GC, parlons d'abord de la mémoire qui n'a pas besoin
+d'être gérée par le GC.
+</p>
+
+<p>
+Par exemple, les valeurs Go sans pointeur stockées dans des variables locales ne seront
+probablement pas gérées du tout par le GC Go, et Go arrangera plutôt l'allocation de
+mémoire liée à la
+<a href="/ref/spec#Declarations_and_scope">portée lexicale</a>
+dans laquelle elle est créée.
+En général, c'est plus efficace que de s'appuyer sur le GC, car le compilateur Go
+est capable de déterminer à l'avance quand cette mémoire peut être libérée et d'émettre
+des instructions machine qui s'en chargent.
+On appelle habituellement cette façon d'allouer de la mémoire pour les valeurs Go
+l'« allocation sur la stack », parce que l'espace est stocké sur la stack de la goroutine.
+</p>
+
+<p>
+Les valeurs Go dont la mémoire ne peut pas être allouée de cette façon, parce que le
+compilateur Go ne peut pas déterminer leur durée de vie, sont dites qui <i>s'échappent
+sur le tas</i> (heap).
+« Le tas » peut être considéré comme un fourre-tout pour l'allocation mémoire, pour
+les cas où les valeurs Go doivent être placées <i>quelque part</i>.
+L'acte d'allouer de la mémoire sur le tas est généralement désigné par « allocation
+dynamique de mémoire » parce que le compilateur comme le runtime peuvent faire très peu
+d'hypothèses sur la façon dont cette mémoire est utilisée et quand elle peut être nettoyée.
+C'est là qu'intervient le GC : c'est un système qui identifie et nettoie spécifiquement
+les allocations de mémoire dynamiques.
+</p>
+
+<p>
+Il y a de nombreuses raisons pour lesquelles une valeur Go pourrait avoir besoin de
+s'échapper sur le tas.
+Une raison pourrait être que sa taille est déterminée dynamiquement.
+Considère par exemple le tableau de support d'une slice dont la taille initiale est
+déterminée par une variable, plutôt que par une constante.
+Note que l'échappement sur le tas doit aussi être transitif : si une référence à une
+valeur Go est écrite dans une autre valeur Go qui a déjà été déterminée à s'échapper,
+cette valeur doit aussi s'échapper.
+</p>
+
+<p>
+Si une valeur Go s'échappe ou non est une fonction du contexte dans lequel elle est
+utilisée et de l'algorithme d'analyse d'échappement du compilateur Go.
+Il serait fragile et difficile d'essayer d'énumérer précisément quand les valeurs
+s'échappent : l'algorithme lui-même est assez sophistiqué et change entre les versions de Go.
+Pour plus de détails sur la façon d'identifier quelles valeurs s'échappent et lesquelles
+ne s'échappent pas, consulte la section sur
+<a href="#Eliminating_heap_allocations">l'élimination des allocations sur le tas</a>.
+</p>
+
+<h3 id="Tracing_Garbage_Collection">Garbage collection par traçage (tracing)</h3>
+
+<p>
+Le garbage collection peut désigner de nombreuses méthodes différentes de recyclage
+automatique de la mémoire ; par exemple, le comptage de références.
+Dans le contexte de ce document, le garbage collection désigne le garbage collection
+par <b>traçage</b> (tracing), qui identifie les objets en cours d'utilisation,
+appelés <b>vivants</b> (live), en suivant les pointeurs de façon transitive.
+</p>
+
+<p>
+Définissons ces termes plus rigoureusement.
+</p>
+
+<ul>
+	<li>
+		<p>
+		<b>Objet</b> : un objet est un morceau de mémoire alloué dynamiquement
+		qui contient une ou plusieurs valeurs Go.
+		</p>
+	</li>
+	<li>
+		<p>
+		<b>Pointeur</b> : une adresse mémoire qui référence n'importe quelle valeur
+		dans un objet.
+		Cela inclut naturellement les valeurs Go de la forme <code>*T</code>, mais
+		aussi des parties de valeurs Go intégrées.
+		Les strings, slices, channels, maps et valeurs d'interface contiennent toutes
+		des adresses mémoire que le GC doit tracer.
+		</p>
+	</li>
+</ul>
+
+<p>
+Ensemble, les objets et les pointeurs vers d'autres objets forment le <b>graphe d'objets</b>.
+Pour identifier la mémoire vivante, le GC parcourt (scanning) le graphe d'objets en
+partant des <b>racines</b> (GC roots) du programme, c'est-à-dire des pointeurs qui
+identifient les objets définitivement en cours d'utilisation par le programme.
+Les variables locales et les variables globales sont deux exemples de racines GC.
+Le processus de parcours du graphe d'objets est désigné sous le terme de <b>scanning</b>.
+Une autre expression que l'on peut voir dans la documentation Go est de dire qu'un
+objet est <b>accessible</b> (reachable), ce qui signifie simplement que l'objet peut
+être découvert par le processus de scanning.
+Note également que, <a href="#Finalizers_cleanups_and_weak_pointers">à une exception
+près</a>, une fois que la mémoire devient inaccessible, elle le reste.
+</p>
+
+<p>
+Cet algorithme de base est commun à tous les GC par traçage.
+Là où les GC par traçage diffèrent, c'est dans ce qu'ils font une fois qu'ils
+découvrent que la mémoire est vivante.
+Le GC de Go utilise la technique mark-sweep, ce qui signifie que pour suivre sa
+progression, le GC <b>marque</b> (marks) également les valeurs qu'il rencontre comme
+vivantes.
+Une fois le traçage terminé, le GC parcourt alors toute la mémoire du tas et rend
+disponible pour l'allocation toute la mémoire qui n'est <i>pas</i> marquée.
+Ce processus est appelé <b>sweep</b> (balayage).
+</p>
+
+<p>
+Une autre technique que tu pourrais connaître consiste à <i>déplacer</i> réellement
+les objets vers une nouvelle partie de la mémoire et à laisser derrière soi un
+pointeur de redirection utilisé ensuite pour mettre à jour tous les pointeurs de
+l'application.
+On appelle un GC qui déplace les objets de cette façon un GC <b>avec déplacement</b>
+(moving) ; Go a un GC <b>sans déplacement</b> (non-moving).
+</p>
+
+<h2 id="The_GC_cycle">Le cycle GC</h2>
+
+<p>
+Parce que le GC Go est un GC mark-sweep, il opère globalement en deux phases :
+la phase de marquage (mark phase), et la phase de balayage (sweep phase).
+Bien que cette affirmation puisse sembler tautologique, elle contient une intuition
+importante : il n'est pas possible de libérer de la mémoire pour l'allocation tant
+que toute la mémoire n'a pas été tracée, car il peut encore exister un pointeur
+non parcouru qui maintient un objet en vie.
+Par conséquent, l'acte de balayage doit être entièrement séparé de l'acte de marquage.
+De plus, le GC peut aussi ne pas être actif du tout, lorsqu'il n'y a pas de travail
+lié au GC à effectuer.
+Le GC tourne en continu à travers ces trois phases que sont le sweep, l'inactivité
+et le marking, dans ce qu'on appelle le <b>cycle GC</b>.
+Pour les besoins de ce document, considère le cycle GC en commençant par le sweep,
+puis l'inactivité, puis le marking.
+</p>
+
+<p>
+Les prochaines sections se concentreront sur la construction d'une intuition pour
+les coûts du GC afin d'aider les utilisateurs à ajuster les paramètres GC pour
+leur propre bénéfice.
+</p>
+
+<h3 id="Understanding_costs">Comprendre les coûts</h3>
+
+<p>
+Le GC est par nature un logiciel complexe construit sur des systèmes encore plus
+complexes.
+Il est facile de se perdre dans les détails lorsqu'on essaie de comprendre le GC
+et d'ajuster son comportement.
+Cette section est destinée à fournir un cadre pour raisonner sur le coût du GC Go
+et ses paramètres de réglage.
+</p>
+
+<p>
+Pour commencer, considère ce modèle de coût GC basé sur trois axiomes simples.
+</p>
+
+<ol>
+	<li>
+		<p>
+		Le GC n'implique que deux ressources : la mémoire physique et le temps CPU.
+		</p>
+	</li>
+	<li>
+		<p>
+		Les coûts mémoire du GC se composent de la mémoire du live heap, de la nouvelle
+		mémoire de tas allouée avant la phase de marquage, et de l'espace pour les
+		métadonnées qui, même si elles sont proportionnelles aux coûts précédents,
+		sont petites en comparaison.
+		</p>
+		<p class="gc-guide-equation">
+		<i>
+		GC memory cost for cycle N = live heap from cycle N-1 + new heap
+		</i>
+		</p>
+		<p>
+		La mémoire du live heap est la mémoire déterminée comme vivante par le cycle GC
+		précédent, tandis que la nouvelle mémoire de tas est toute mémoire allouée dans
+		le cycle courant, qui peut ou non être vivante à la fin.
+		La quantité de mémoire vivante à tout moment donné est une propriété du programme,
+		et pas quelque chose que le GC peut contrôler directement.
+		</p>
+	</li>
+	<li>
+		<p>
+		Les coûts CPU du GC sont modélisés comme un coût fixe par cycle, et un coût
+		marginal qui évolue proportionnellement à la taille du live heap.
+		</p>
+		<p class="gc-guide-equation">
+		<i>
+		GC CPU time for cycle N = Fixed CPU time cost per cycle + average CPU time cost per byte * live heap memory found in cycle N
+		</i>
+		</p>
+		<p>
+		Le coût CPU fixe par cycle inclut des choses qui se produisent un nombre constant
+		de fois à chaque cycle, comme l'initialisation des structures de données pour le
+		prochain cycle GC.
+		Ce coût est généralement faible et n'est inclus que par souci d'exhaustivité.
+		</p>
+		<p>
+		La majeure partie du coût CPU du GC est le marking et le scanning, ce qui est
+		capturé par le coût marginal.
+		Le coût moyen du marking et du scanning dépend de l'implémentation du GC, mais
+		aussi du comportement du programme.
+		Par exemple, plus de pointeurs signifie plus de travail pour le GC, car au minimum
+		le GC doit visiter tous les pointeurs du programme.
+		Les structures comme les listes chaînées et les arbres sont aussi plus difficiles
+		à parcourir en parallèle pour le GC, ce qui augmente le coût moyen par octet.
+		</p>
+		<p>
+		Ce modèle ignore les coûts de sweep, qui sont proportionnels à la mémoire totale
+		du tas, y compris la mémoire morte (elle doit être rendue disponible pour
+		l'allocation).
+		Pour l'implémentation GC actuelle de Go, le sweep est tellement plus rapide que
+		le marking et le scanning que le coût est négligeable en comparaison.
+		</p>
+	</li>
+</ol>
+
+<p>
+Ce modèle est simple mais efficace : il catégorise avec précision les coûts dominants
+du GC.
+Il nous indique également que le <i>coût CPU total</i> du garbage collector dépend du
+nombre total de cycles GC sur une période de temps donnée.
+Enfin, ce modèle contient un compromis fondamental temps/espace pour le GC.
+</p>
+
+<p>
+Pour comprendre pourquoi, explorons un scénario contraint mais utile : le
+<b>régime permanent</b> (steady state).
+Le régime permanent d'une application, du point de vue du GC, est défini par les
+propriétés suivantes :
+</p>
+
+<ul>
+	<li>
+		<p>
+		Le taux auquel l'application alloue de la nouvelle mémoire (en octets par
+		seconde) est constant.
+		</p>
+		<p>
+		Cela signifie que, du point de vue du GC, la charge de travail de l'application
+		semble approximativement identique au fil du temps.
+		Par exemple, pour un service web, ce serait un taux de requêtes constant avec,
+		en moyenne, les mêmes types de requêtes effectuées, avec une durée de vie
+		moyenne de chaque requête qui reste à peu près constante.
+		</p>
+	</li>
+	<li>
+		<p>
+		Les coûts marginaux du GC sont constants.
+		</p>
+		<p>
+		Cela signifie que les statistiques du graphe d'objets, telles que la distribution
+		des tailles d'objets, le nombre de pointeurs et la profondeur moyenne des structures
+		de données, restent les mêmes d'un cycle à l'autre.
+		</p>
+	</li>
+</ul>
+
+<p>
+Travaillons sur un exemple.
+Supposons qu'une application fonctionne en régime permanent, allouant 10 Mio/s,
+tandis que le GC peut parcourir la mémoire à une vitesse de 100 Mio/cpu-seconde
+(c'est inventé).
+Le régime permanent ne fait aucune hypothèse sur la taille du live heap, mais pour
+simplifier, disons que le live heap de cette application fait toujours 10 Mio.
+Supposons également, encore une fois par simplicité, que les coûts GC fixes sont nuls.
+Jouons avec la période du cycle GC.
+</p>
+
+<p>
+Supposons que chaque cycle GC se produise exactement après 1 cpu-seconde.
+Alors, à la fin de chaque cycle GC, notre exemple d'application aura alloué 10 Mio
+de mémoire supplémentaire, résultant en une taille totale de tas de 20 Mio.
+Et à chaque cycle GC, le GC consacrera 0,1 cpu-secondes à parcourir le live heap
+de 10 Mio, résultant en une surcharge CPU de 10%.
+Rappelle-toi que le GC ne doit parcourir que le live heap, pas tout le tas.
+(Note : un live heap constant ne signifie pas que toute la mémoire nouvellement
+allouée est morte.
+Cela signifie qu'après l'exécution du GC, <i>une combinaison</i> d'ancienne et de
+nouvelle mémoire de tas meurt, et que le résultat final est un live heap de 10 Mio
+trouvé à chaque cycle.)
+</p>
+
+<p>
+Supposons maintenant que chaque cycle GC se produise moins souvent, une fois toutes
+les 2 cpu-secondes.
+Alors, notre exemple d'application, en régime permanent, aura une taille totale de
+tas de 30 Mio à chaque cycle GC, puisqu'elle aura alloué 20 Mio dans cet intervalle.
+Mais à chaque cycle GC, le GC <i>n'aura toujours besoin que de 0,1 cpu-secondes</i>
+pour parcourir les 10 Mio de mémoire vivante.
+Là encore, on suppose que la taille du live heap reste la même, quelle que soit la
+quantité de mémoire allouée.
+Cela signifie donc que notre surcharge GC vient de diminuer, de 10% à 5%, au prix
+d'une utilisation mémoire supérieure de 50%.
+</p>
+
+<p>
+Ce changement de surcharges est le compromis fondamental temps/espace mentionné
+précédemment.
+Et la <b>fréquence GC</b> est au centre de ce compromis : si on exécute le GC plus
+fréquemment, on utilise moins de mémoire, et inversement.
+Mais à quelle fréquence le GC s'exécute-t-il réellement ?
+En Go, décider quand le GC doit démarrer est le paramètre principal sur lequel
+l'utilisateur a le contrôle.
+</p>
+
+<h3 id="GOGC">GOGC</h3>
+
+<p>
+À un haut niveau, GOGC détermine le compromis entre le CPU GC et la mémoire.
+</p>
+
+<p>
+Il fonctionne en déterminant la taille de tas cible après chaque cycle GC, une valeur
+cible pour la taille totale du tas dans le prochain cycle.
+L'objectif du GC est de terminer un cycle de collecte avant que la taille totale du
+tas ne dépasse la taille de tas cible.
+La taille totale du tas est définie comme la taille du live heap à la fin du cycle
+précédent, plus toute nouvelle mémoire de tas allouée par l'application depuis le
+cycle précédent.
+Pendant ce temps, l'objectif de tas (target heap memory) est défini comme suit :
+</p>
+
+<p class="gc-guide-equation">
+<i>
+Target heap memory = Live heap + (Live heap + GC roots) * GOGC / 100
+</i>
+</p>
+
+<p>
+À titre d'exemple, considère un programme Go avec un live heap de 8 Mio, 1 Mio
+de stacks de goroutines, et 1 Mio de pointeurs dans des variables globales.
+Alors, avec une valeur GOGC de 100, la quantité de nouvelle mémoire qui sera allouée
+avant que le prochain GC ne s'exécute sera de 10 Mio, soit 100% des 10 Mio de travail,
+pour une empreinte totale de tas de 18 Mio.
+Avec une valeur GOGC de 50, ce sera 50%, soit 5 Mio.
+Avec une valeur GOGC de 200, ce sera 200%, soit 20 Mio.
+</p>
+
+<p class="gc-guide-note">
+Note : GOGC inclut l'ensemble des racines GC uniquement à partir de Go 1.18.
+Auparavant, seul le live heap était pris en compte.
+Souvent, la quantité de mémoire dans les stacks de goroutines est assez faible et la
+taille du live heap domine toutes les autres sources de travail GC, mais dans les cas
+où les programmes avaient des centaines de milliers de goroutines, le GC prenait de
+mauvaises décisions.
+</p>
+
+<p>
+L'objectif de tas contrôle la fréquence GC : plus la cible est grande, plus le GC
+peut attendre avant de démarrer une autre phase de marking, et inversement.
+Bien que la formule précise soit utile pour faire des estimations, il vaut mieux
+penser à GOGC en termes de son objectif fondamental : un paramètre qui choisit un
+point dans le compromis CPU GC/mémoire.
+L'essentiel à retenir est que <b>doubler GOGC va doubler les surcharges mémoire du
+tas et environ diviser par deux le coût CPU GC</b>, et inversement.
+(Pour voir une explication complète de la raison,
+voir <a href="#Additional_notes_on_GOGC">l'annexe</a>.)
+</p>
+
+<p class="gc-guide-note">
+Note : la taille de tas cible n'est qu'une cible, et il y a plusieurs raisons pour
+lesquelles le cycle GC pourrait ne pas se terminer exactement à cette cible.
+D'abord, une allocation de tas suffisamment grande peut simplement dépasser la cible.
+Cependant, d'autres raisons apparaissent dans les implémentations GC qui vont au-delà
+du <a href="#Understanding_costs">modèle GC</a> utilisé jusqu'ici dans ce guide.
+Pour plus de détails, consulte la <a href="#Latency">section sur la latence</a>, mais
+les détails complets se trouvent dans les <a href="#Additional_resources">ressources
+supplémentaires</a>.
+</p>
+
+<p>
+GOGC peut être configuré soit via la variable d'environnement <code>GOGC</code>
+(que tous les programmes Go reconnaissent), soit via l'API
+<a href="https://pkg.go.dev/runtime/debug#SetGCPercent"><code>SetGCPercent</code></a>
+du package <code>runtime/debug</code>.
+</p>
+
+<p>
+Note que GOGC peut aussi être utilisé pour désactiver complètement le GC (à condition
+que la <a href="#Memory_limit">limite mémoire</a> ne s'applique pas) en définissant
+<code>GOGC=off</code> ou en appelant <code>SetGCPercent(-1)</code>.
+Conceptuellement, ce paramètre est équivalent à définir GOGC à une valeur infinie,
+car la quantité de nouvelle mémoire avant qu'un GC ne soit déclenché est illimitée.
+</p>
+
+<p>
+Pour mieux comprendre tout ce qui a été discuté jusqu'ici, essaie la visualisation
+interactive ci-dessous qui est construite sur le
+<a href="#Understanding_costs">modèle de coût GC</a> discuté précédemment.
+Cette visualisation représente l'exécution d'un programme dont le travail hors GC prend
+10 secondes de temps CPU pour se terminer.
+Dans la première seconde, il effectue une étape d'initialisation (en faisant croître
+son live heap) avant de se stabiliser en régime permanent.
+L'application alloue 200 Mio au total, avec 20 Mio vivants à la fois.
+On suppose que le seul travail GC pertinent à effectuer provient du live heap,
+et que (de façon irréaliste) l'application n'utilise pas de mémoire supplémentaire.
+</p>
+
+<p>
+Utilise le curseur pour ajuster la valeur de GOGC et observer comment l'application
+réagit en termes de durée totale et de surcharge GC.
+Chaque cycle GC se termine lorsque le nouveau tas revient à zéro.
+Le temps pris pendant que le nouveau tas revient à zéro est le temps combiné pour
+la phase de marking du cycle N, et la phase de sweep du cycle N+1.
+Note que cette visualisation (et toutes les visualisations de ce guide) supposent que
+l'application est en pause pendant que le GC s'exécute, de sorte que les coûts CPU GC
+sont entièrement représentés par le temps qu'il faut pour que la nouvelle mémoire de
+tas revienne à zéro.
+Cela sert uniquement à simplifier la visualisation ; la même intuition s'applique quand même.
+L'axe X se décale pour toujours afficher la durée complète en temps CPU du programme.
+Remarque que le temps CPU supplémentaire utilisé par le GC augmente la durée globale.
+</p>
+
+<div class="gc-guide-graph" data-workload='[
+	{"duration": 1.0, "allocRate": 20, "scanRate": 1024, "newSurvivalRate": 1.00, "oldDeathRate": 0.00},
+	{"duration": 9.0, "allocRate": 20, "scanRate": 1024, "newSurvivalRate": 0.00, "oldDeathRate": 0.00}
+]' data-config='{
+	"fixedCost": 0.04,
+	"otherMem": 0,
+	"GOGC": "graph1-gogc",
+	"memoryLimit": 100000
+}'></div>
+<div class="gc-guide-graph-controls">
+	<div>
+		GOGC
+		<input type="range" min="0" max="10" step="0.005" value="6.64" id="graph1-gogc">
+		<div class="gc-guide-counter" id="graph1-gogc-display"></div>
+	</div>
+</div>
+
+<p>
+Remarque que le GC entraîne toujours une certaine surcharge CPU et de mémoire de
+pointe.
+Quand GOGC augmente, la surcharge CPU diminue, mais la mémoire de pointe augmente
+proportionnellement à la taille du live heap.
+Quand GOGC diminue, la mémoire de pointe requise diminue au prix d'une surcharge CPU
+supplémentaire.
+</p>
+
+<p class="gc-guide-note">
+Note : le graphe affiche le temps CPU, pas le temps horloge pour compléter le programme.
+Si le programme tourne sur 1 CPU et utilise pleinement ses ressources, alors ils sont
+équivalents.
+Un programme réel tourne probablement sur un système multi-coeurs et n'utilise pas
+les CPUs à 100% en permanence.
+Dans ces cas, l'impact sur le temps horloge du GC sera plus faible.
+</p>
+
+<p class="gc-guide-note">
+Note : le GC Go a une taille minimale de tas total de 4 Mio, donc si la cible définie
+par GOGC est en dessous de cette valeur, elle est arrondie à la hausse.
+La visualisation reflète ce détail.
+</p>
+
+<p>
+Voici un autre exemple un peu plus dynamique et réaliste.
+Là encore, l'application prend 10 cpu-secondes à terminer sans le GC, mais le taux
+d'allocation en régime permanent augmente considérablement à mi-chemin, et la taille
+du live heap évolue un peu dans la première phase.
+Cet exemple montre à quoi pourrait ressembler le régime permanent lorsque la taille
+du live heap change réellement, et comment un taux d'allocation plus élevé conduit à
+des cycles GC plus fréquents.
+</p>
+
+<div class="gc-guide-graph" data-workload='[
+	{"duration": 1.0, "allocRate": 20, "scanRate": 1024, "newSurvivalRate": 1.00, "oldDeathRate": 0.00},
+	{"duration": 1.0, "allocRate": 20, "scanRate": 1024, "newSurvivalRate": 0.00, "oldDeathRate": 0.50},
+	{"duration": 1.0, "allocRate": 20, "scanRate": 1024, "newSurvivalRate": 0.50, "oldDeathRate": 0.00},
+	{"duration": 1.0, "allocRate": 20, "scanRate": 1024, "newSurvivalRate": 0.00, "oldDeathRate": 0.50},
+	{"duration": 1.0, "allocRate": 20, "scanRate": 1024, "newSurvivalRate": 0.50, "oldDeathRate": 0.00},
+	{"duration": 5.0, "allocRate": 200, "scanRate": 1024, "newSurvivalRate": 0.02, "oldDeathRate": 1.00}
+]' data-config='{
+	"fixedCost": 0.04,
+	"otherMem": 0,
+	"GOGC": "graph2-gogc",
+	"memoryLimit": 100000
+}'></div>
+<div class="gc-guide-graph-controls">
+	<div>
+		GOGC
+		<input type="range" min="0" max="10" step="0.005" value="6.64" id="graph2-gogc">
+		<div class="gc-guide-counter" id="graph2-gogc-display"></div>
+	</div>
+</div>
+
+<h3 id="Memory_limit">Limite mémoire</h3>
+
+<p>
+Jusqu'à Go 1.19, GOGC était le seul paramètre qui pouvait être utilisé pour modifier
+le comportement du GC.
+Bien qu'il soit très efficace comme moyen de définir un compromis, il ne tient pas
+compte du fait que la mémoire disponible est finie.
+Considère ce qui se passe lorsqu'il y a un pic transitoire de la taille du live heap :
+parce que le GC va choisir une taille totale de tas proportionnelle à cette taille de
+live heap, GOGC doit être configuré pour le live heap au <i>pic</i>, même si dans le
+cas habituel une valeur GOGC plus élevée offre un meilleur compromis.
+</p>
+
+<p>
+La visualisation ci-dessous illustre cette situation de pic transitoire du tas.
+</p>
+
+<div class="gc-guide-graph" data-workload='[
+	{"duration": 1.0, "allocRate": 20, "scanRate": 1024, "newSurvivalRate": 1.00, "oldDeathRate": 0.00},
+	{"duration": 4.0, "allocRate": 20, "scanRate": 1024, "newSurvivalRate": 0.00, "oldDeathRate": 0.00},
+	{"duration": 0.5, "allocRate": 20, "scanRate": 1024, "newSurvivalRate": 1.00, "oldDeathRate": 0.00},
+	{"duration": 0.5, "allocRate": 20, "scanRate": 1024, "newSurvivalRate": 0.00, "oldDeathRate": 0.00},
+	{"duration": 0.5, "allocRate": 20, "scanRate": 1024, "newSurvivalRate": 0.00, "oldDeathRate": 0.50},
+	{"duration": 3.5, "allocRate": 20, "scanRate": 1024, "newSurvivalRate": 0.00, "oldDeathRate": 0.00}
+]' data-config='{
+	"fixedCost": 0.04,
+	"otherMem": 0,
+	"GOGC": "graph3-gogc",
+	"memoryLimit": 100000
+}'></div>
+<div class="gc-guide-graph-controls">
+	<div>
+		GOGC
+		<input type="range" min="0" max="10" step="0.005" value="6.64" id="graph3-gogc">
+		<div class="gc-guide-counter" id="graph3-gogc-display"></div>
+	</div>
+</div>
+
+<p>
+Si l'exemple de charge est exécuté dans un conteneur avec un peu plus de 60 Mio de
+mémoire disponible, alors GOGC ne peut pas être augmenté au-delà de 100, même si le
+reste des cycles GC a la mémoire disponible pour utiliser cette mémoire supplémentaire.
+De plus, dans certaines applications, ces pics transitoires peuvent être rares et
+difficiles à prédire, entraînant des conditions de mémoire insuffisante occasionnelles,
+inévitables et potentiellement coûteuses.
+</p>
+
+<p>
+C'est pourquoi dans la version 1.19, Go a ajouté la prise en charge de la définition
+d'une limite mémoire de runtime.
+La limite mémoire peut être configurée soit via la variable d'environnement
+<code>GOMEMLIMIT</code> que tous les programmes Go reconnaissent, soit via la
+fonction <code>SetMemoryLimit</code> disponible dans le package
+<code>runtime/debug</code>.
+</p>
+
+<p>
+Cette limite mémoire fixe un maximum sur la <i>quantité totale de mémoire que le
+runtime Go peut utiliser</i>.
+L'ensemble spécifique de mémoire inclus est défini en termes de
+<a href="https://pkg.go.dev/runtime#MemStats"><code>runtime.MemStats</code></a>
+par l'expression
+</p>
+
+<p>
+<code>Sys</code> <code>-</code> <code>HeapReleased</code>
+</p>
+
+<p>
+ou de façon équivalente en termes du package
+<a href="https://pkg.go.dev/runtime/metrics"><code>runtime/metrics</code></a>,
+</p>
+
+<p>
+<code>/memory/classes/total:bytes</code> <code>-</code> <code>/memory/classes/heap/released:bytes</code>
+</p>
+
+<p>
+Parce que le GC Go a un contrôle explicite sur la quantité de mémoire de tas qu'il
+utilise, il définit la taille totale du tas en fonction de cette limite mémoire et de
+la quantité de mémoire que le runtime Go utilise par ailleurs.
+</p>
+
+<p>
+La visualisation ci-dessous représente la même charge en régime permanent à phase
+unique de la section GOGC, mais cette fois avec 10 Mio de surcharge supplémentaire
+du runtime Go et avec une limite mémoire ajustable.
+Essaie de déplacer à la fois GOGC et la limite mémoire et observe ce qui se passe.
+</p>
+
+<div class="gc-guide-graph" data-workload='[
+	{"duration": 1.0, "allocRate": 20, "scanRate": 1024, "newSurvivalRate": 1.00, "oldDeathRate": 0},
+	{"duration": 9.0, "allocRate": 20, "scanRate": 1024, "newSurvivalRate": 0.00, "oldDeathRate": 0}
+]' data-config='{
+	"fixedCost": 0.04,
+	"otherMem": 10,
+	"GOGC": "graph4-gogc",
+	"memoryLimit": "graph4-memlimit"
+}'></div>
+<div class="gc-guide-graph-controls">
+	<div>
+		GOGC
+		<input type="range" min="0" max="10" step="0.005" value="6.64" id="graph4-gogc">
+		<div class="gc-guide-counter" id="graph4-gogc-display"></div>
+	</div>
+	<div>
+		Limite mémoire
+		<input type="range" min="1" max="100" step="0.5" value="100" id="graph4-memlimit">
+		<div class="gc-guide-counter" id="graph4-memlimit-display"></div>
+	</div>
+</div>
+
+<p>
+Remarque que lorsque la limite mémoire est abaissée en dessous de la mémoire de pointe
+déterminée par GOGC (42 Mio pour un GOGC de 100), le GC s'exécute plus fréquemment
+pour maintenir la mémoire de pointe dans la limite.
+</p>
+
+<p>
+Revenons à notre exemple précédent du pic transitoire du tas : en définissant une limite
+mémoire et en augmentant GOGC, on peut avoir le meilleur des deux mondes : aucun
+dépassement de limite mémoire, et une meilleure économie de ressources.
+Essaie la visualisation interactive ci-dessous.
+</p>
+
+<div class="gc-guide-graph" data-workload='[
+	{"duration": 1.0, "allocRate": 20, "scanRate": 1024, "newSurvivalRate": 1.00, "oldDeathRate": 0.00},
+	{"duration": 4.0, "allocRate": 20, "scanRate": 1024, "newSurvivalRate": 0.00, "oldDeathRate": 0.00},
+	{"duration": 0.5, "allocRate": 20, "scanRate": 1024, "newSurvivalRate": 1.00, "oldDeathRate": 0.00},
+	{"duration": 0.5, "allocRate": 20, "scanRate": 1024, "newSurvivalRate": 0.00, "oldDeathRate": 0.00},
+	{"duration": 0.5, "allocRate": 20, "scanRate": 1024, "newSurvivalRate": 0.00, "oldDeathRate": 0.50},
+	{"duration": 3.5, "allocRate": 20, "scanRate": 1024, "newSurvivalRate": 0.00, "oldDeathRate": 0.00}
+]' data-config='{
+	"fixedCost": 0.04,
+	"otherMem": 0,
+	"GOGC": "graph5-gogc",
+	"memoryLimit": "graph5-memlimit"
+}'></div>
+<div class="gc-guide-graph-controls">
+	<div>
+		GOGC
+		<input type="range" min="0" max="10" step="0.005" value="6.64" id="graph5-gogc">
+		<div class="gc-guide-counter" id="graph5-gogc-display"></div>
+	</div>
+	<div>
+		Limite mémoire
+		<input type="range" min="1" max="100" step="0.5" value="100" id="graph5-memlimit">
+		<div class="gc-guide-counter" id="graph5-memlimit-display"></div>
+	</div>
+</div>
+
+<p>
+Remarque qu'avec certaines valeurs de GOGC et de la limite mémoire, l'utilisation
+mémoire de pointe s'arrête à la limite mémoire, mais que le reste de l'exécution du
+programme respecte quand même la règle de taille totale de tas définie par GOGC.
+</p>
+
+<p>
+Cette observation mène à un autre détail intéressant : même lorsque GOGC est défini
+à off, la limite mémoire est quand même respectée !
+En fait, cette configuration particulière représente une <i>maximisation de l'économie
+de ressources</i> car elle définit la fréquence GC minimale requise pour maintenir
+une limite mémoire donnée.
+Dans ce cas, <i>toute</i> l'exécution du programme voit la taille du tas augmenter
+jusqu'à atteindre la limite mémoire.
+</p>
+
+<p>
+Maintenant, bien que la limite mémoire soit clairement un outil puissant, <b>l'utilisation
+d'une limite mémoire n'est pas sans coût</b>, et n'invalide certainement pas l'utilité
+de GOGC.
+</p>
+
+<p>
+Considère ce qui se passe lorsque le live heap devient assez grand pour rapprocher
+l'utilisation totale de la mémoire de la limite mémoire.
+Dans la visualisation du régime permanent ci-dessus, essaie de désactiver GOGC puis
+d'abaisser progressivement la limite mémoire pour observer ce qui se passe.
+Remarque que le temps total que prend l'application commencera à croître de façon
+illimitée car le GC s'exécute continuellement pour maintenir une limite mémoire
+impossible.
+</p>
+
+<p>
+Cette situation, où le programme n'arrive pas à progresser raisonnablement en raison
+de cycles GC incessants, est appelée <b>thrashing</b>.
+C'est particulièrement dangereux car cela bloque effectivement le programme.
+Pire encore, cela peut se produire exactement dans la même situation que celle qu'on
+cherchait à éviter avec GOGC : un pic transitoire du tas suffisamment grand peut
+bloquer un programme indéfiniment !
+Essaie de réduire la limite mémoire (autour de 30 Mio ou moins) dans la visualisation
+du pic transitoire du tas et observe comment le pire comportement commence spécifiquement
+avec le pic du tas.
+</p>
+
+<p>
+Dans de nombreux cas, un blocage indéfini est pire qu'une condition de mémoire
+insuffisante, qui tend à entraîner un échec beaucoup plus rapide.
+</p>
+
+<p>
+Pour cette raison, la limite mémoire est définie comme étant <b>douce</b> (soft).
+Le runtime Go ne garantit pas qu'il maintiendra cette limite mémoire dans toutes les
+circonstances ; il promet seulement un effort raisonnable.
+Cette assouplissement de la limite mémoire est essentiel pour éviter le comportement
+de thrashing, car il donne au GC une sortie de secours : laisser l'utilisation mémoire
+dépasser la limite pour éviter de passer trop de temps dans le GC.
+</p>
+
+<p>
+En interne, le GC fixe une limite supérieure sur la quantité de temps CPU qu'il peut
+utiliser sur une fenêtre temporelle donnée (avec une certaine hystérésis pour les
+pics très courts et transitoires d'utilisation CPU).
+Cette limite est actuellement fixée à environ 50%, avec une fenêtre de
+<code>2 * GOMAXPROCS</code> cpu-secondes.
+La conséquence de la limitation du temps CPU GC est que le travail du GC est retardé,
+pendant ce temps le programme Go peut continuer à allouer de la nouvelle mémoire de
+tas, même au-delà de la limite mémoire.
+</p>
+
+<p>
+L'intuition derrière la limite GC CPU de 50% est basée sur l'impact dans le pire cas
+sur un programme avec une mémoire disponible abondante.
+En cas de mauvaise configuration de la limite mémoire, lorsqu'elle est définie trop
+bas par erreur, le programme ralentira au maximum de 2x, car le GC ne peut pas prendre
+plus de 50% de son temps CPU.
+</p>
+
+<p class="gc-guide-note">
+Note : les visualisations de cette page ne simulent pas la limite CPU du GC.
+</p>
+
+<h4 id="Suggested_uses">Utilisations conseillées</h4>
+
+<p>
+Bien que la limite mémoire soit un outil puissant, et que le runtime Go prenne des
+mesures pour atténuer les pires comportements dus à une mauvaise utilisation, il est
+quand même important de l'utiliser de façon réfléchie.
+Voici une collection de conseils pratiques sur les cas où la limite mémoire est la
+plus utile et applicable, et les cas où elle pourrait faire plus de mal que de bien.
+</p>
+
+<ul>
+	<li>
+		<p>
+		<b>Fais</b> tirer parti de la limite mémoire lorsque l'environnement d'exécution
+		de ton programme Go est entièrement sous ton contrôle, et que le programme Go est
+		le seul programme avec accès à un ensemble de ressources (c'est-à-dire une sorte
+		de réservation mémoire, comme une limite mémoire de conteneur).
+		</p>
+		<p>
+		Un bon exemple est le déploiement d'un service web dans des conteneurs avec une
+		quantité fixe de mémoire disponible.
+		</p>
+		<p>
+		<b>Dans ce cas, une bonne règle empirique est de laisser une marge supplémentaire
+		de 5 à 10% pour tenir compte des sources mémoire dont le runtime Go n'a pas
+		conscience.
+		</b>
+		</p>
+	</li>
+	<li>
+		<p>
+		<b>Fais</b> ajuster librement la limite mémoire en temps réel pour s'adapter
+		aux conditions changeantes.
+		</p>
+		<p>
+		Un bon exemple est un programme cgo où les bibliothèques C ont temporairement
+		besoin d'utiliser beaucoup plus de mémoire.
+		</p>
+	</li>
+	<li>
+		<p>
+		<b>Ne définis pas</b> GOGC à off avec une limite mémoire si le programme Go
+		pourrait partager une partie de sa mémoire limitée avec d'autres programmes,
+		et que ces programmes sont généralement découplés du programme Go.
+		Garde plutôt la limite mémoire car elle peut aider à freiner les comportements
+		transitoires indésirables, mais définis GOGC à une valeur plus petite et
+		raisonnable pour le cas moyen.
+		</p>
+		<p>
+		Bien qu'il soit tentant d'essayer de « réserver » de la mémoire pour les
+		programmes colocataires, sauf si les programmes sont entièrement synchronisés
+		(par exemple, le programme Go appelle un sous-processus et se bloque pendant
+		l'exécution de son appelé), le résultat sera moins fiable car inévitablement
+		les deux programmes auront besoin de plus de mémoire.
+		Laisser le programme Go utiliser moins de mémoire quand il n'en a pas besoin
+		produira un résultat global plus fiable.
+		Ce conseil s'applique aussi aux situations de surengagement, où la somme des
+		limites mémoire des conteneurs s'exécutant sur une machine peut dépasser la
+		mémoire physique réellement disponible sur la machine.
+		</p>
+	</li>
+	<li>
+		<p>
+		<b>N'utilise pas</b> la limite mémoire lors d'un déploiement dans un environnement
+		d'exécution que tu ne contrôles pas, surtout si l'utilisation mémoire de ton
+		programme est proportionnelle à ses entrées.
+		</p>
+		<p>
+		Un bon exemple est un outil CLI ou une application de bureau.
+		Intégrer une limite mémoire dans le programme quand on ne sait pas quel type
+		d'entrées il va recevoir, ni quelle quantité de mémoire pourrait être disponible
+		sur le système, peut entraîner des plantages confus et de mauvaises performances.
+		De plus, un utilisateur avancé peut toujours définir une limite mémoire s'il
+		le souhaite.
+		</p>
+	</li>
+	<li>
+		<p>
+		<b>Ne définis pas</b> une limite mémoire pour éviter les conditions de mémoire
+		insuffisante lorsqu'un programme est déjà proche des limites mémoire de son
+		environnement.
+		</p>
+		<p>
+		Cela remplace effectivement un risque de mémoire insuffisante par un risque de
+		grave ralentissement de l'application, ce qui n'est souvent pas un échange
+		favorable, même avec les efforts que Go fait pour atténuer le thrashing.
+		Dans un tel cas, il serait bien plus efficace soit d'augmenter les limites
+		mémoire de l'environnement (et <i>ensuite</i> éventuellement définir une limite
+		mémoire) soit de diminuer GOGC (qui offre un compromis bien plus propre que
+		l'atténuation du thrashing).
+		</p>
+	</li>
+</ul>
+
+<h3 id="Latency">Latence</h3>
+
+<p>
+Les visualisations de ce document ont modélisé l'application comme étant en pause
+pendant que le GC s'exécute.
+Des implémentations GC qui se comportent de cette façon existent, et elles sont
+appelées GC « stop-the-world ».
+</p>
+
+<p>
+Le GC Go, cependant, n'est pas entièrement stop-the-world et effectue la plupart de
+son travail en parallèle avec l'application.
+Ceci est principalement pour réduire les <i>latences</i> de l'application.
+Plus précisément, la durée de bout en bout d'une seule unité de calcul (par exemple,
+une requête web).
+Jusqu'ici, ce document a principalement considéré le <i>débit</i> de l'application
+(par exemple, les requêtes web traitées par seconde).
+Note que chaque exemple de la section <a href="#The_GC_cycle">cycle GC</a> s'est
+concentré sur la durée CPU totale d'un programme en cours d'exécution.
+Cependant, une telle durée est bien moins significative pour, disons, un service web.
+Bien que le débit soit encore important pour un service web (c'est-à-dire les requêtes
+par seconde), la latence de chaque requête individuelle compte souvent encore plus.
+</p>
+
+<p>
+En termes de latence, un GC stop-the-world peut nécessiter un temps considérable pour
+exécuter ses phases de marking et de sweep, pendant lequel l'application, et dans le
+contexte d'un service web, toute requête en cours, est incapable de progresser davantage.
+À la place, le GC Go évite de rendre la durée de toute pause globale de l'application
+proportionnelle à la taille du tas, et l'algorithme de traçage principal est exécuté
+pendant que l'application s'exécute activement.
+(Les pauses sont plus fortement proportionnelles à GOMAXPROCS algorithmiquement, mais
+sont le plus souvent dominées par le temps qu'il faut pour arrêter les goroutines en cours.)
+Collecter en parallèle n'est pas sans coût : en pratique, cela conduit souvent à une
+conception avec un débit plus faible qu'un garbage collector stop-the-world équivalent.
+Cependant, il est important de noter que <i>une latence plus faible ne signifie pas
+intrinsèquement un débit plus faible</i>, et les performances du garbage collector Go
+se sont continuellement améliorées au fil du temps, tant en latence qu'en débit.
+</p>
+
+<p>
+La nature concurrente du GC actuel de Go n'invalide rien de ce qui a été discuté dans
+ce document jusqu'ici : aucune des affirmations ne reposait sur ce choix de conception.
+La fréquence GC est toujours le principal moyen par lequel le GC négocie entre le temps
+CPU et la mémoire pour le débit, et en fait, il assume aussi ce rôle pour la latence.
+C'est parce que la plupart des coûts du GC sont engagés pendant que la phase de marking
+est active.
+</p>
+
+<p>
+L'essentiel à retenir est donc que <b>réduire la fréquence GC peut aussi entraîner des
+améliorations de latence</b>.
+Cela s'applique non seulement aux réductions de fréquence GC dues à la modification
+des paramètres de réglage, comme l'augmentation de GOGC et/ou de la limite mémoire,
+mais aussi aux optimisations décrites dans le
+<a href="#Optimization_guide">guide d'optimisation</a>.
+</p>
+
+<p>
+Cependant, la latence est souvent plus complexe à comprendre que le débit, car elle
+est le produit de l'exécution moment par moment du programme et pas seulement une
+agrégation des coûts.
+En conséquence, le lien entre la latence et la fréquence GC est moins direct.
+Voici une liste de sources possibles de latence pour ceux qui souhaitent approfondir
+le sujet.
+</p>
+
+<ol>
+	<li>
+		De brèves pauses stop-the-world lorsque le GC passe entre les phases de marking
+		et de sweep,
+	</li>
+	<li>
+		Des retards d'ordonnancement car le GC prend 25% des ressources CPU lorsqu'il
+		est en phase de marking,
+	</li>
+	<li>
+		Les goroutines utilisateur qui assistent le GC en réponse à un taux d'allocation
+		élevé,
+	</li>
+	<li>
+		Les écritures de pointeurs nécessitant un travail supplémentaire pendant que le
+		GC est en phase de marking, et
+	</li>
+	<li>
+		Les goroutines en cours d'exécution doivent être suspendues pour que leurs
+		racines GC puissent être parcourues.
+	</li>
+</ol>
+
+<p>
+Ces sources de latence sont visibles dans les
+<a href="/doc/diagnostics#execution-tracer">traces d'exécution</a>, à l'exception des
+écritures de pointeurs nécessitant un travail supplémentaire.
+</p>
+
+<h3 id="Finalizers_cleanups_and_weak_pointers">Finalizers, cleanups et weak pointers</h2>
+
+<p>
+Le garbage collection donne l'illusion d'une mémoire infinie en n'utilisant qu'une
+mémoire finie.
+La mémoire est allouée mais jamais explicitement libérée, ce qui permet des API plus
+simples et des algorithmes concurrents par rapport à la gestion manuelle de la mémoire
+à l'état brut.
+(Certains langages avec gestion manuelle de la mémoire utilisent des approches
+alternatives telles que les « pointeurs intelligents » et le suivi de propriété à la
+compilation pour s'assurer que les objets sont libérés, mais ces fonctionnalités
+sont profondément intégrées dans les conventions de conception des API dans ces langages.)
+</p>
+
+<p>
+Seuls les objets vivants, ceux accessibles depuis une variable globale ou un calcul
+dans une goroutine, peuvent affecter le comportement du programme.
+À tout moment après qu'un objet devient inaccessible (« mort »), il peut être
+recyclé en toute sécurité par le GC.
+Cela permet une grande variété de conceptions GC, comme la conception par traçage
+utilisée par Go aujourd'hui.
+La mort d'un objet n'est pas un événement observable au niveau du langage.
+</p>
+
+<p>
+Cependant, la bibliothèque runtime de Go fournit trois fonctionnalités qui brisent
+cette illusion :
+<a href="/pkg/runtime#AddCleanup">les cleanups</a>,
+<a href="/pkg/weak#Pointer">les weak pointers</a>, et
+<a href="/pkg/runtime#SetFinalizer">les finalizers</a>.
+Chacune de ces fonctionnalités offre un moyen d'observer et de réagir à la mort d'un
+objet, et dans le cas des finalizers, même de l'annuler.
+Cela complique bien sûr les programmes Go et ajoute une charge supplémentaire à
+l'implémentation du GC.
+Néanmoins, ces fonctionnalités existent car elles sont utiles dans diverses
+circonstances, et les programmes Go les utilisent et en bénéficient constamment.
+</p>
+
+<p>
+Pour les détails de chaque fonctionnalité, consulte la documentation de son package
+(<a href="/pkg/runtime#AddCleanup">runtime.AddCleanup</a>,
+<a href="/pkg/weak#Pointer">weak.Pointer</a>,
+<a href="/pkg/runtime#SetFinalizer">runtime.SetFinalizer</a>).
+Voici quelques conseils généraux pour utiliser ces fonctionnalités, les grandes lignes
+des problèmes courants que tu peux rencontrer avec chaque fonctionnalité, et des
+conseils pour tester les utilisations de ces fonctionnalités.
+</p>
+
+<h4 id="General_advice">Conseils généraux</h4>
+
+<ul>
+	<li>
+		<p>
+		<b>
+		Écris des tests unitaires.
+		</b>
+		</p>
+		<p>
+		Le timing exact des cleanups, des weak pointers et des finalizers peut être
+		difficile à prédire, et il est facile de se convaincre que tout fonctionne,
+		même après de nombreuses exécutions consécutives.
+		Mais il est aussi facile de faire des erreurs subtiles.
+		<a href="#Testing_object_death">Écrire des tests</a> pour eux peut être délicat,
+		mais étant donné qu'ils sont si subtils à utiliser, les tests sont encore plus
+		importants qu'à l'habitude.
+		</p>
+	</li>
+	<li>
+		<p>
+		<b>
+		Évite d'utiliser ces fonctionnalités directement dans le code Go typique.
+		</b>
+		</p>
+		<p>
+		Ce sont des fonctionnalités de bas niveau avec des restrictions et des
+		comportements subtils.
+		Par exemple, il n'y a aucune garantie que les cleanups ou les finalizers
+		seront exécutés à la sortie du programme, ni même du tout.
+		Les longs commentaires dans leur documentation d'API doivent être vus comme
+		un avertissement.
+		La grande majorité du code Go ne bénéficie pas d'utiliser ces fonctionnalités
+		directement, seulement indirectement.
+		</p>
+	</li>
+	<li>
+		<p>
+		<b>
+		Encapsule l'utilisation de ces mécanismes dans un package.
+		</b>
+		</p>
+		<p>
+		Dans la mesure du possible, ne laisse pas l'utilisation de ces mécanismes
+		s'échapper dans l'API publique de ton package ; fournis des interfaces qui
+		rendent difficile ou impossible pour les utilisateurs de les utiliser incorrectement.
+		Par exemple, au lieu de demander à l'utilisateur de configurer un cleanup sur
+		de la mémoire allouée par C pour la libérer, écris un package wrapper et cache
+		ce détail à l'intérieur.
+		</p>
+	</li>
+	<li>
+		<p>
+		<b>
+		Restreins l'accès aux objets qui ont des finalizers, des cleanups et des weak
+		pointers au package qui les a créés et appliqués.
+		</b>
+		</p>
+		<p>
+		C'est lié au point précédent, mais ça vaut la peine d'être mentionné
+		explicitement, car c'est un pattern très puissant pour utiliser ces
+		fonctionnalités de façon moins sujette aux erreurs.
+		Par exemple, le <a href="/pkg/unique">package unique</a> utilise des weak
+		pointers en interne, mais encapsule complètement les objets pointés
+		faiblement.
+		Ces valeurs ne peuvent jamais être mutées par le reste de l'application,
+		elles ne peuvent être copiées que via la
+		<a href="/pkg/unique#Handle.Value">méthode Value</a>, préservant l'illusion
+		de mémoire infinie pour les utilisateurs du package.
+		</p>
+	</li>
+	<li>
+		<p>
+		<b>
+		Préfère nettoyer les ressources non mémoire de façon déterministe lorsque
+		c'est possible, avec les finalizers et les cleanups comme solution de repli.
+		</b>
+		</p>
+		<p>
+		Les cleanups et les finalizers conviennent bien aux ressources mémoire telles
+		que la mémoire allouée en externe, comme depuis C, ou les références à un
+		mapping <code>mmap</code>.
+		La mémoire allouée par malloc de C doit éventuellement être libérée par free de C.
+		Un finalizer qui appelle <code>free</code>, attaché à un objet wrapper pour
+		la mémoire C, est un moyen raisonnable de s'assurer que la mémoire C est
+		éventuellement récupérée comme conséquence du garbage collection.
+		</p>
+		<p>
+		Cependant, les ressources non mémoire, comme les descripteurs de fichiers,
+		tendent à être soumises à des limites système dont le runtime Go n'est généralement
+		pas conscient.
+		De plus, le timing du garbage collector dans un programme Go donné est généralement
+		quelque chose sur lequel l'auteur d'un package a peu de contrôle (par exemple,
+		la fréquence d'exécution du GC est contrôlée par <a href="#GOGC">GOGC</a>, qui
+		peut être défini par les opérateurs à diverses valeurs en pratique).
+		Ces deux faits font que les cleanups et les finalizers sont mal adaptés pour être
+		le seul mécanisme de libération des ressources non mémoire.
+		</p>
+		<p>
+		Si tu es l'auteur d'un package exposant une API qui enveloppe une ressource non
+		mémoire, envisage de fournir une API explicite pour libérer la ressource de façon
+		déterministe (via une méthode <code>Close</code>, ou quelque chose de similaire),
+		plutôt que de te fier au garbage collector via les cleanups ou les finalizers.
+		Préfère plutôt utiliser les cleanups et les finalizers comme gestionnaire de
+		meilleur effort pour les erreurs de programmation, soit en nettoyant quand même
+		la ressource comme le fait
+		<a href="/pkg/os#File">os.File</a>, soit en signalant l'échec à nettoyer
+		de façon déterministe à l'utilisateur.
+		</p>
+	</li>
+	<li>
+		<p>
+		<b>
+		Préfère les cleanups aux finalizers.
+		</b>
+		</p>
+		<p>
+		Historiquement, les finalizers ont été ajoutés pour simplifier l'interface entre
+		le code Go et le code C et pour nettoyer les ressources non mémoire.
+		L'usage prévu était de les appliquer à des objets wrapper qui possèdent de la
+		mémoire C ou d'autres ressources non mémoire, afin que la ressource puisse être
+		libérée une fois que le code Go a fini de l'utiliser.
+		Ces raisons expliquent au moins en partie pourquoi les finalizers ont une portée
+		étroite, pourquoi un objet donné ne peut avoir qu'un seul finalizer, et pourquoi
+		ce finalizer doit être attaché au premier octet de l'objet uniquement.
+		Cette limitation étouffe déjà certains cas d'utilisation.
+		Par exemple, tout package qui souhaite mettre en cache en interne des informations
+		sur un objet qui lui est passé ne peut pas nettoyer ces informations une fois
+		l'objet disparu.
+		</p>
+		<p>
+		Mais pire encore, les finalizers sont inefficaces et sujets aux erreurs en raison
+		du fait qu'ils <a href="https://en.wikipedia.org/wiki/Object_resurrection">ressuscitent
+		l'objet</a> auquel ils sont attachés, afin qu'il puisse être passé à la fonction
+		finalizer (et même continuer à vivre au-delà, aussi).
+		Ce simple fait signifie que si l'objet fait partie d'un cycle de référence, il
+		ne pourra jamais être libéré, et la mémoire supportant l'objet ne pourra pas être
+		réutilisée avant au moins le cycle de garbage collection suivant.
+		</p>
+		<p>
+		Parce que les finalizers ressuscitent les objets, cependant, ils ont un ordre
+		d'exécution mieux défini que les cleanups.
+		Pour cette raison, les finalizers sont encore potentiellement (mais rarement)
+		utiles pour nettoyer des structures qui ont des exigences d'ordre de destruction
+		complexes.
+		</p>
+		<p>
+		Mais pour toutes les autres utilisations dans Go 1.24 et au-delà, nous recommandons
+		d'utiliser les cleanups car ils sont plus flexibles, moins sujets aux erreurs et
+		plus efficaces que les finalizers.
+		</p>
+	</li>
+</ul>
+
+<h4 id="Common_cleanup_issues">Problèmes courants avec les cleanups</h4>
+
+<ul>
+	<li>
+		<p>
+		Les objets avec des cleanups attachés ne doivent pas être accessibles depuis la
+		fonction cleanup (par exemple, via une variable locale capturée).
+		Cela empêcherait l'objet d'être récupéré et le cleanup de s'exécuter.
+		</p>
+	</li>
+<pre>
+f := new(myFile)
+f.fd = syscall.Open(...)
+runtime.AddCleanup(f, func(fd int) {
+	syscall.Close(f.fd) // Mistake: We reference f, so this cleanup won't run!
+}, f.fd)
+</pre>
+	<li>
+		<p>
+		Les objets avec des cleanups attachés ne doivent pas être accessibles depuis
+		l'argument de la fonction cleanup.
+		Cela empêcherait l'objet d'être récupéré et le cleanup de s'exécuter.
+		</p>
+	</li>
+<pre>
+f := new(myFile)
+f.fd = syscall.Open(...)
+runtime.AddCleanup(f, func(f *myFile) {
+	syscall.Close(f.fd)
+}, f) // Mistake: We reference f, so this cleanup wouldn't ever run. This specific case also panics.
+</pre>
+	<li>
+		<p>
+		Les finalizers ont un ordre d'exécution bien défini, mais les cleanups non.
+		Les cleanups peuvent aussi s'exécuter de façon concurrente les uns avec les autres.
+		</p>
+
+    </li>
+    <li>
+        <p>
+        Les cleanups de longue durée devraient créer une goroutine pour éviter de
+        bloquer l'exécution des autres cleanups.
+        </p>
+	</li>
+	<li>
+		<p>
+		<code>runtime.GC</code> n'attendra pas que les cleanups des objets inaccessibles
+		soient exécutés, seulement qu'ils soient tous mis en file d'attente.
+		</p>
+	</li>
+</ul>
+
+<h4 id="Common_weak_pointer_issues">Problèmes courants avec les weak pointers</h4>
+
+<ul>
+	<li>
+		<p>
+		Les weak pointers peuvent commencer à retourner <code>nil</code> depuis leur
+		méthode <code>Value</code> à des moments inattendus.
+		Protège toujours l'appel à <code>Value</code> avec une vérification
+		<code>nil</code> et prévois un plan de secours.
+		</p>
+	</li>
+	<li>
+		<p>
+		Lorsque des weak pointers sont utilisés comme clés de map, ils n'affectent pas
+		l'accessibilité des valeurs de la map.
+		Par conséquent, si une clé de map avec weak pointer pointe vers un objet qui est
+		aussi accessible depuis la valeur de la map, cet objet sera quand même considéré
+		comme accessible.
+		</p>
+	</li>
+</ul>
+
+<h4 id="Common_finalizer_issues">Problèmes courants avec les finalizers</h4>
+
+<ul>
+	<li>
+		<p>
+		Les objets avec des finalizers attachés ne doivent pas être accessibles depuis
+		eux-mêmes par quelque chemin que ce soit (en d'autres termes, ils ne peuvent
+		pas être dans un cycle de référence).
+		Cela empêcherait l'objet d'être récupéré et le finalizer de s'exécuter.
+		</p>
+	</li>
+<pre>
+f := new(myCycle)
+f.self = f // Mistake: f is reachable from f, so this finalizer would never run.
+runtime.SetFinalizer(f, func(f *myCycle) {
+	...
+})
+</pre>
+	<li>
+		<p>
+		Les objets avec des finalizers attachés ne doivent pas être accessibles depuis
+		la fonction finalizer (par exemple, via une variable locale capturée).
+		Cela empêcherait l'objet d'être récupéré et le finalizer de s'exécuter.
+		</p>
+	</li>
+<pre>
+f := new(myFile)
+f.fd = syscall.Open(...)
+runtime.SetFinalizer(f, func(_ *myFile) {
+	syscall.Close(f.fd) // Mistake: We reference the outer f, so this cleanup won't run!
+})
+</pre>
+	<li>
+		<p>
+		Les chaînes de référence d'objets avec des finalizers attachés (par exemple,
+		dans une liste chaînée) nécessitent, au minimum, autant de cycles GC qu'il y a
+		d'objets dans la chaîne pour tous les nettoyer.
+		Garde les finalizers peu profonds !
+		</p>
+	</li>
+<pre>
+// Mistake: reclaiming this linked list will take at least 10 GC cycles.
+node := new(linkedListNode)
+for range 10 {
+	tmp := new(linkedListNode)
+	tmp.next = node
+	node = tmp
+	runtime.SetFinalizer(node, func(node *linkedListNode) {
+		...
+	})
+}
+</pre>
+	<li>
+		<p>
+		Évite de placer des finalizers sur des objets retournés aux frontières de packages.
+		Cela permet aux utilisateurs de ton package d'appeler
+		<code>runtime.SetFinalizer</code> pour muter le finalizer sur l'objet que tu
+		retournes, ce qui peut être un comportement inattendu sur lequel les utilisateurs
+		de ton package pourraient finir par compter.
+		</p>
+	</li>
+    <li>
+        <p>
+        Les finalizers de longue durée devraient créer une nouvelle goroutine pour
+        éviter de bloquer l'exécution des autres finalizers.
+        </p>
+    </li>
+	<li>
+		<p>
+		<code>runtime.GC</code> n'attendra pas que les finalizers des objets inaccessibles
+		soient exécutés, seulement qu'ils soient tous mis en file d'attente.
+		</p>
+	</li>
+</ul>
+
+<h4 id="Testing_object_death">Tester la mort des objets</h4>
+
+<p>
+Lors de l'utilisation de ces fonctionnalités, il peut parfois être délicat d'écrire
+des tests pour le code qui les utilise.
+Voici quelques conseils pour écrire des tests robustes pour le code qui utilise ces
+fonctionnalités.
+</p>
+
+<ul>
+	<li>
+		Évite d'exécuter ces tests en parallèle avec d'autres tests.
+		Cela aide beaucoup d'augmenter le déterminisme autant que possible et d'avoir
+		une bonne maîtrise de l'état du monde à tout moment.
+	</li>
+	<li>
+		Utilise <code>runtime.GC</code> pour établir une base de référence en entrant
+		dans le test.
+		Utilise <code>runtime.GC</code> pour forcer les weak pointers à <code>nil</code>,
+		et pour mettre en file d'attente les cleanups et les finalizers à exécuter.
+	</li>
+	<li>
+		<p>
+		<code>runtime.GC</code> n'attend pas que les cleanups et les finalizers s'exécutent,
+		il les met seulement en file d'attente.
+		</p>
+		<p>
+		Pour écrire les tests les plus robustes possibles, injecte un moyen de bloquer
+		sur un cleanup ou un finalizer depuis ton test (par exemple, passe un channel
+		optionnel au cleanup et/ou au finalizer depuis le test, et écris dans le channel
+		une fois qu'il a fini de s'exécuter).
+		Si c'est trop difficile ou impossible, une alternative est de boucler sur
+		un état post-cleanup particulier jusqu'à ce qu'il soit vrai.
+		Par exemple, les tests du package <code>os</code> appellent
+		<code>runtime.Gosched</code> dans une boucle qui vérifie si un fichier a été
+		fermé, une fois qu'il devient inaccessible.
+		</p>
+	</li>
+	<li>
+		<p>
+		Si tu écris des tests pour l'utilisation de finalizers, et que tu as une chaîne
+		d'objets qui utilisent des finalizers, tu auras besoin d'au minimum la longueur
+		de la chaîne la plus profonde que le test peut créer d'appels
+		<code>runtime.GC</code> pour t'assurer que tous les finalizers s'exécutent.
+		</p>
+	</li>
+	<li>
+		<p>
+		Teste en mode race pour découvrir les races entre les cleanups concurrents, et
+		entre le code de cleanup et de finalizer et le reste du code.
+		</p>
+	</li>
+</ul>
+
+<!-- TODO: Add a short section about non-steady-state behavior. -->
+
+<h3 id="Additional_resources">Ressources supplémentaires</h3>
+
+<p>
+Bien que les informations présentées ci-dessus soient exactes, elles manquent de
+détails pour comprendre pleinement les coûts et les compromis de la conception du GC Go.
+Pour plus d'informations, consulte les ressources supplémentaires suivantes.
+</p>
+
+<ul>
+	<li>
+		<a href="https://gchandbook.org/">The GC Handbook</a> : une excellente ressource
+			générale et de référence sur la conception du garbage collector.
+	</li>
+	<li>
+		<a href="https://google.github.io/tcmalloc/design.html">TCMalloc</a> : document
+			de conception pour l'allocateur mémoire C/C++ TCMalloc, sur lequel l'allocateur
+			mémoire Go est basé.
+	</li>
+	<li>
+		<a href="/blog/go15gc">Annonce du GC de Go 1.5</a> : l'article de blog annonçant
+			le GC concurrent de Go 1.5, qui décrit l'algorithme plus en détail.
+	</li>
+	<li>
+		<a href="/blog/ismmkeynote">Getting to Go</a> : une présentation approfondie sur
+			l'évolution de la conception du GC de Go jusqu'en 2018.
+	</li>
+	<li>
+		<a href="https://docs.google.com/document/d/1wmjrocXIWTr1JxU-3EQBI6BK6KgtiFArkG47XK73xIQ/edit">Rythme du GC concurrent de Go 1.5</a> : document
+			de conception pour déterminer quand démarrer une phase de marking concurrent.
+	</li>
+	<li>
+		<a href="/issue/30333">Scavenging plus intelligent</a> : document
+			de conception pour réviser la façon dont le runtime Go retourne de la mémoire
+			au système d'exploitation.
+	</li>
+	<li>
+		<a href="/issue/35112">Allocateur de pages extensible</a> : document
+			de conception pour réviser la façon dont le runtime Go gère la mémoire qu'il
+			obtient du système d'exploitation.
+	</li>
+	<li>
+		<a href="/issue/44167">Refonte du pacer GC (Go 1.18)</a> : document
+			de conception pour réviser l'algorithme déterminant quand démarrer une phase
+			de marking concurrent.
+	</li>
+	<li>
+		<a href="/issue/48409">Limite mémoire douce (Go 1.19)</a> : document
+			de conception pour la limite mémoire douce.
+	</li>
+</ul>
+
+<h2 id="A_note_about_virtual_memory">Note sur la mémoire virtuelle</h2>
+
+<p>
+Ce guide s'est principalement concentré sur l'utilisation de la mémoire physique par
+le GC, mais une question qui revient régulièrement est ce que cela signifie exactement
+et comment cela se compare à la mémoire virtuelle (généralement présentée dans les
+programmes comme <code>top</code> sous le nom de « VSS »).
+</p>
+
+<p>
+La mémoire physique est la mémoire logée dans la puce RAM physique réelle dans la
+plupart des ordinateurs.
+La <a href="https://en.wikipedia.org/wiki/Virtual_memory">mémoire virtuelle</a> est
+une abstraction sur la mémoire physique fournie par le système d'exploitation pour
+isoler les programmes les uns des autres.
+Il est aussi généralement acceptable pour les programmes de réserver de l'espace
+d'adressage virtuel qui ne mappe vers aucune adresse physique.
+</p>
+
+<p>
+<b>
+Parce que la mémoire virtuelle n'est qu'un mapping maintenu par le système
+d'exploitation, il est généralement très bon marché de faire de grandes réservations
+de mémoire virtuelle qui ne mappent pas vers de la mémoire physique.
+</b>
+</p>
+
+<p>
+Le runtime Go s'appuie généralement sur cette vision du coût de la mémoire virtuelle
+de quelques façons :
+</p>
+
+<ul>
+	<li>
+		<p>
+		Le runtime Go ne supprime jamais la mémoire virtuelle qu'il mappe.
+		À la place, il utilise des opérations spéciales que la plupart des systèmes
+		d'exploitation fournissent pour libérer explicitement toutes les ressources
+		mémoire physiques associées à une plage de mémoire virtuelle.
+		</p>
+
+		<p>
+		Cette technique est utilisée explicitement pour gérer la
+		<a href="#Memory_limit">limite mémoire</a> et retourner au système d'exploitation
+		la mémoire dont le runtime Go n'a plus besoin.
+		Le runtime Go libère aussi en continu en arrière-plan la mémoire dont il n'a
+		plus besoin.
+		Consulte <a href="#Additional_resources">les ressources supplémentaires</a> pour
+		plus d'informations.
+		</p>
+	</li>
+	<li>
+		<p>
+		Sur les plateformes 32 bits, le runtime Go réserve entre 128 Mio et 512 Mio
+		d'espace d'adressage à l'avance pour le tas afin de limiter les problèmes de
+		fragmentation.
+		</p>
+	</li>
+	<li>
+		<p>
+		Le runtime Go utilise de grandes réservations d'espace d'adressage virtuel dans
+		l'implémentation de plusieurs structures de données internes.
+		Sur les plateformes 64 bits, celles-ci ont généralement une empreinte mémoire
+		virtuelle minimale d'environ 700 Mio.
+		Sur les plateformes 32 bits, leur empreinte est négligeable.
+		</p>
+	</li>
+</ul>
+
+<p>
+En conséquence, les métriques de mémoire virtuelle comme « VSS » dans <code>top</code>
+ne sont généralement pas très utiles pour comprendre l'empreinte mémoire d'un programme
+Go.
+À la place, concentre-toi sur « RSS » et les mesures similaires, qui reflètent plus
+directement l'utilisation de la mémoire physique.
+</p>
+
+<h2 id="Optimization_guide">Guide d'optimisation</h2>
+
+<h3 id="Identifying_costs">Identifier les coûts</h3>
+
+<p>
+Avant d'essayer d'optimiser la façon dont ton application Go interagit avec le GC,
+il est important d'abord d'identifier que le GC est bien un coût majeur.
+</p>
+
+</p>
+L'écosystème Go fournit un certain nombre d'outils pour identifier les coûts et
+optimiser les applications Go.
+Pour un bref aperçu de ces outils, consulte le
+<a href="/doc/diagnostics">guide sur les diagnostics</a>.
+Ici, on va se concentrer sur un sous-ensemble de ces outils et un ordre raisonnable
+pour les appliquer afin de comprendre l'impact et le comportement du GC.
+</p>
+
+<ol>
+	<li>
+		<p>
+		<b>Profils CPU</b>
+		</p>
+
+		<p>
+		Un bon point de départ est le
+		<a href="https://pkg.go.dev/runtime/pprof#hdr-Profiling_a_Go_program">profilage CPU</a>.
+		Le profilage CPU fournit un aperçu de l'endroit où le temps CPU est passé, bien
+		que pour un oeil non entraîné il peut être difficile d'identifier l'ampleur du
+		rôle que joue le GC dans une application particulière.
+		Heureusement, comprendre comment le GC s'intègre se résume principalement à
+		savoir ce que signifient les différentes fonctions du package `runtime`.
+		Voici un sous-ensemble utile de ces fonctions pour interpréter les profils CPU.
+		</p>
+
+		<p>
+		Note que les fonctions listées ci-dessous ne sont pas des fonctions feuilles,
+		donc elles peuvent ne pas apparaître dans l'affichage par défaut que l'outil
+		<code>pprof</code> fournit avec la commande <code>top</code>.
+		À la place, utilise la commande <code>top -cum</code> ou utilise la commande
+		<code>list</code> directement sur ces fonctions et concentre-toi sur la colonne
+		de pourcentage cumulatif.
+		</p>
+	</li>
+
+	<ul>
+		<li>
+			<p>
+			<b><code>runtime.gcBgMarkWorker</code></b> : point d'entrée dans les goroutines
+			worker de marquage en arrière-plan.
+			Le temps passé ici évolue avec la fréquence GC et la complexité et la taille
+			du graphe d'objets.
+			Il représente une base de référence du temps que l'application passe à faire
+			le marking et le scanning.
+			</p>
+			<p>
+			Note que dans ces goroutines, tu trouveras des appels à
+			<code>runtime.gcDrainMarkWorkerDedicated</code>,
+			<code>runtime.gcDrainMarkWorkerFractional</code>, et
+			<code>runtime.gcDrainMarkWorkerIdle</code>,
+			qui indiquent le type de worker.
+			Dans une application Go largement inactive, le GC Go va utiliser des ressources
+			CPU supplémentaires (inactives) pour finir son travail plus rapidement, ce qui
+			est indiqué par le symbole <code>runtime.gcDrainMarkWorkerIdle</code>.
+			En conséquence, le temps ici peut représenter une grande fraction des
+			échantillons CPU, que le GC Go considère comme libres.
+			Si l'application devient plus active, le temps CPU dans les workers inactifs
+			diminuera.
+			Une raison courante pour laquelle cela peut se produire est si une application
+			tourne entièrement dans une goroutine mais que <code>GOMAXPROCS</code> est &gt;1.
+			</p>
+		</li>
+		<li>
+			<p>
+			<b><code>runtime.mallocgc</code></b> : point d'entrée dans l'allocateur mémoire
+			pour la mémoire de tas.
+			Une grande quantité de temps cumulatif passé ici (&gt;15%)
+			indique généralement beaucoup de mémoire allouée.
+			</p>
+		</li>
+		<li>
+			<p>
+			<b><code>runtime.gcAssistAlloc</code></b> : fonction dans laquelle les goroutines
+			entrent pour céder une partie de leur temps afin d'assister le GC avec le scanning
+			et le marking.
+			Une grande quantité de temps cumulatif passé ici (&gt;5%) indique que l'application
+			dépasse probablement le GC en termes de vitesse d'allocation.
+			Cela indique un degré d'impact particulièrement élevé du GC, et représente aussi
+			le temps que l'application passe à faire le marking et le scanning.
+			Note que cela est inclus dans l'arbre d'appels de <code>runtime.mallocgc</code>,
+			donc cela l'inflatera aussi.
+			</p>
+		</li>
+	</ul>
+
+	<li>
+		<p>
+		<b>Traces d'exécution</b>
+		</p>
+
+		<p>
+		Bien que les profils CPU soient excellents pour identifier où le temps est passé
+		en agrégat, ils sont moins utiles pour indiquer les coûts de performance qui sont
+		plus subtils, rares, ou liés spécifiquement à la latence.
+		Les traces d'exécution</a>, en revanche, fournissent une vue riche et approfondie
+		d'une courte fenêtre d'exécution d'un programme Go.
+		Elles contiennent une variété d'événements liés au GC Go et des chemins
+		d'exécution spécifiques peuvent être directement observés, ainsi que la façon dont
+		l'application pourrait interagir avec le GC Go.
+		Tous les événements GC suivis sont commodément étiquetés comme tels dans le
+		visualiseur de traces.
+		</p>
+
+		<p>
+		Consulte la <a href="https://pkg.go.dev/runtime/trace">documentation du package
+		<code>runtime/trace</code></a> pour savoir comment démarrer avec les traces
+		d'exécution.
+		</p>
+	</li>
+
+	<li>
+		<p>
+		<b>Traces GC</b>
+		</p>
+
+		<p>
+		Quand tout le reste échoue, le GC Go fournit quelques traces spécifiques différentes
+		qui offrent des informations bien plus profondes sur le comportement du GC.
+		Ces traces sont toujours imprimées directement sur STDERR, une ligne par cycle GC,
+		et sont configurées via la variable d'environnement <code>GODEBUG</code>
+		que tous les programmes Go reconnaissent.
+		Elles sont principalement utiles pour déboguer le GC Go lui-même car elles
+		nécessitent une certaine familiarité avec les spécificités de l'implémentation du GC,
+		mais peuvent néanmoins parfois être utiles pour mieux comprendre le comportement du GC.
+		</p>
+
+		<p>
+		La trace GC principale est activée en définissant <code>GODEBUG=gctrace=1</code>.
+		La sortie produite par cette trace est documentée dans la
+		<a href="https://pkg.go.dev/runtime#hdr-Environment_Variables">section des
+		variables d'environnement dans la documentation du package <code>runtime</code>.</a>
+		</p>
+
+		<p>
+		Une trace GC supplémentaire appelée « trace du pacer » fournit des informations
+		encore plus profondes et est activée en définissant <code>GODEBUG=gcpacertrace=1</code>.
+		L'interprétation de cette sortie nécessite une compréhension du « pacer » du GC
+		(voir <a href="#Additional_resources">ressources supplémentaires</a>), ce qui
+		dépasse le cadre de ce guide.
+		</p>
+	</li>
+</ol>
+
+<h3 id="Eliminating_heap_allocations">Éliminer les allocations sur le tas</h3>
+
+<p>
+Une façon de réduire les coûts du GC est de faire gérer moins de valeurs par le GC
+dès le départ.
+Les techniques décrites ci-dessous peuvent produire certaines des plus grandes
+améliorations de performances, parce que comme la <a href="#GOGC">section GOGC</a>
+l'a démontré, le
+taux d'allocation d'un programme Go est un facteur majeur de la fréquence GC, la
+métrique de coût clé utilisée dans ce guide.
+</p>
+
+<h4 id="Heap_profiling">Profilage du tas</h4>
+
+<p>
+Après avoir <a href="#Identifying_costs">identifié que le GC est une source de coûts
+significatifs</a>, la prochaine étape pour éliminer les allocations sur le tas est de
+trouver d'où provient la majorité d'entre elles.
+Pour ce faire, les profils mémoire (en réalité, les profils de mémoire de tas) sont
+très utiles.
+Consulte la <a href="https://pkg.go.dev/runtime/pprof#hdr-Profiling_a_Go_program">
+documentation</a> pour savoir comment démarrer avec eux.
+</p>
+
+<p>
+Les profils mémoire décrivent l'endroit dans le programme d'où proviennent les
+allocations de tas, en les identifiant par la trace de pile au point où elles ont été
+allouées.
+Chaque profil mémoire peut décomposer la mémoire de quatre façons.
+</p>
+
+<ul>
+	<li><code>inuse_objects</code> : décompose le nombre d'objets vivants.</li>
+	<li><code>inuse_space</code> : décompose les objets vivants par la quantité
+	de mémoire qu'ils utilisent en octets.</li>
+	<li><code>alloc_objects</code> : décompose le nombre d'objets qui ont été
+	alloués depuis que le programme Go a commencé à s'exécuter.</li>
+	<li><code>alloc_space</code> : décompose la quantité totale de mémoire allouée
+	depuis que le programme Go a commencé à s'exécuter.</li>
+</ul>
+
+<p>
+Passer d'une vue à l'autre de la mémoire de tas peut être fait avec soit le flag
+<code>-sample_index</code> de l'outil <code>pprof</code>, soit via l'option
+<code>sample_index</code> lorsque l'outil est utilisé de façon interactive.
+</p>
+
+<p class="gc-guide-note">
+Note : les profils mémoire n'échantillonnent par défaut qu'un sous-ensemble des
+objets de tas, donc ils ne contiendront pas d'informations sur chaque allocation
+de tas individuelle.
+Cependant, c'est suffisant pour trouver les points chauds.
+Pour modifier le taux d'échantillonnage, consulte
+<a href="https://pkg.go.dev/runtime#pkg-variables"><code>runtime.MemProfileRate</code></a>.
+</p>
+
+<p>
+Pour les besoins de réduire les coûts GC, <code>alloc_space</code> est généralement
+la vue la plus utile car elle correspond directement au taux d'allocation.
+Cette vue indiquera les points chauds d'allocation qui fourniraient le plus grand
+bénéfice.
+</p>
+
+<h4 id="Escape_analysis">Analyse d'échappement</h4>
+
+<p>
+Une fois que les sites d'allocation de tas candidats ont été identifiés à l'aide des
+<a href="#Heap_profiling">profils de tas</a>, comment peuvent-ils être éliminés ?
+La clé est de tirer parti de l'analyse d'échappement du compilateur Go pour lui faire
+trouver un stockage alternatif et plus efficace pour cette mémoire, par exemple
+sur la stack de la goroutine.
+Heureusement, le compilateur Go a la capacité de décrire pourquoi il décide de faire
+s'échapper une valeur Go sur le tas.
+Avec cette connaissance, il s'agit de réorganiser ton code source pour changer le
+résultat de l'analyse (ce qui est souvent la partie la plus difficile, mais dépasse
+le cadre de ce guide).
+</p>
+
+<p>
+Quant à la façon d'accéder aux informations de l'analyse d'échappement du compilateur
+Go, la façon la plus simple est via un flag de débogage supporté par le compilateur Go
+qui décrit toutes les optimisations qu'il a appliquées ou non à un package dans un
+format texte.
+Cela inclut si les valeurs s'échappent ou non.
+Essaie la commande suivante, où <code>[package]</code> est un chemin de package Go.
+</p>
+
+<pre>
+$ go build -gcflags=-m=3 [package]
+</pre>
+
+<p>
+Ces informations peuvent aussi être visualisées comme une superposition dans un éditeur
+compatible LSP ; elles sont exposées comme une action de code.
+
+Par exemple, dans VS Code, invoque la commande « Source Action... > Show compiler
+optimization details » pour activer les diagnostics pour le package courant.
+(Tu peux aussi exécuter la commande « Go: Toggle compiler optimization details ».)
+
+Utilise ce paramètre de configuration pour contrôler quelles annotations sont affichées :
+</p>
+
+<ol>
+	<li>
+	Active la superposition pour l'analyse d'échappement en
+	<a href="https://github.com/golang/vscode-go/wiki/settings#uidiagnosticannotations">
+	définissant <code>ui.diagnostic.annotations</code> pour inclure <code>escape</code>
+	</a>.
+	</li>
+</ol>
+
+<p>
+Enfin, le compilateur Go fournit ces informations dans un format lisible par machine
+(JSON) qui peut être utilisé pour construire des outils personnalisés supplémentaires.
+Pour plus d'informations à ce sujet, consulte la
+<a href="https://cs.opensource.google/go/go/+/master:src/cmd/compile/internal/logopt/log_opts.go;l=25;drc=351e0f4083779d8ac91c05afebded42a302a6893">
+documentation dans le code source Go</a>.
+<p>
+
+<h3 id="Implementation-specific_optimizations">Optimisations spécifiques à l'implémentation</h3>
+
+<p>
+Le GC Go est sensible aux caractéristiques de la mémoire vivante, car un graphe
+complexe d'objets et de pointeurs limite à la fois le parallélisme et génère plus
+de travail pour le GC.
+En conséquence, le GC contient quelques optimisations pour des structures communes
+spécifiques.
+Les plus directement utiles pour l'optimisation des performances sont listées ci-dessous.
+</p>
+
+<p class="gc-guide-note">
+Note : appliquer les optimisations ci-dessous peut réduire la lisibilité de ton code
+en obscurcissant l'intention, et peut ne pas tenir entre les versions de Go.
+Préfère appliquer ces optimisations uniquement là où elles ont le plus d'importance.
+Ces endroits peuvent être identifiés en utilisant les outils listés dans la
+<a href="#Identifying_costs">section sur l'identification des coûts</a>.
+</p>
+
+<ul>
+	<li>
+		<p>
+		Les valeurs sans pointeur sont séparées des autres valeurs.
+		</p>
+		<p>
+		En conséquence, il peut être avantageux d'éliminer les pointeurs des structures
+		de données qui n'en ont pas strictement besoin, car cela réduit la pression de
+		cache que le GC exerce sur le programme.
+		En conséquence, les structures de données qui s'appuient sur des indices plutôt
+		que sur des valeurs de pointeur, bien que moins bien typées, peuvent mieux
+		performer.
+		Cela ne vaut la peine de le faire que s'il est clair que le graphe d'objets est
+		complexe et que le GC passe beaucoup de temps à faire le marking et le scanning.
+		</p>
+	</li>
+	<li>
+		<p>
+		Le GC arrêtera le scanning des valeurs au dernier pointeur dans la valeur.
+		</p>
+		<p>
+		En conséquence, il peut être avantageux de regrouper les champs de pointeur dans
+		les valeurs de type struct au début de la valeur.
+		Cela ne vaut la peine de le faire que s'il est clair que l'application passe
+		beaucoup de temps à faire le marking et le scanning.
+		(En théorie, le compilateur peut faire cela automatiquement, mais ce n'est pas
+		encore implémenté, et les champs de struct sont arrangés tels qu'ils sont écrits
+		dans le code source.)
+		</p>
+	</li>
+</ul>
+
+<p>
+De plus, le GC doit interagir avec presque chaque pointeur qu'il voit, donc utiliser
+des indices dans une slice, par exemple, plutôt que des pointeurs, peut aider à réduire
+les coûts GC.
+</p>
+
+<h3 id="Linux_transparent_huge_pages">Pages énormes transparentes Linux (THP)</h3>
+
+<p>
+Lorsqu'un programme accède à la mémoire, le CPU doit traduire les adresses de
+<a href="#A_note_about_virtual_memory">mémoire virtuelle</a> qu'il utilise en adresses
+de mémoire physique qui référencent les données auxquelles il essayait d'accéder.
+Pour ce faire, le CPU consulte la « table de pages », une structure de données qui
+représente le mapping de la mémoire virtuelle à la mémoire physique, gérée par le
+système d'exploitation.
+Chaque entrée dans la table de pages représente un bloc indivisible de mémoire physique
+appelé une page, d'où le nom.
+</p>
+
+<p>
+Les pages énormes transparentes (THP) sont une fonctionnalité Linux qui remplace
+de façon transparente les pages de mémoire physique supportant des régions de mémoire
+virtuelle contiguës par des blocs de mémoire plus grands appelés pages énormes (huge pages).
+En utilisant des blocs plus grands, moins d'entrées de table de pages sont nécessaires
+pour représenter la même région mémoire, ce qui améliore les temps de recherche dans
+la table de pages.
+Cependant, des blocs plus grands signifient plus de gaspillage si seulement une petite
+partie de la page énorme est utilisée par le système.
+</p>
+
+<p>
+Lors de l'exécution de programmes Go en production, activer les pages énormes transparentes
+sur Linux peut améliorer le débit et la latence au prix d'une utilisation mémoire
+supplémentaire.
+Les applications avec de petits tas ont tendance à ne pas bénéficier des THP et peuvent
+finir par utiliser une quantité substantielle de mémoire supplémentaire (jusqu'à 50%).
+Cependant, les applications avec de grands tas (1 Gio ou plus) ont tendance à bénéficier
+considérablement (jusqu'à 10% de débit) sans beaucoup de surcharge mémoire supplémentaire
+(1 à 2% ou moins).
+Être conscient de tes paramètres THP dans les deux cas peut être utile, et l'expérimentation
+est toujours recommandée.
+</p>
+
+<p>
+On peut activer ou désactiver les pages énormes transparentes dans un environnement
+Linux en modifiant <code>/sys/kernel/mm/transparent_hugepage/enabled</code>.
+Consulte le
+<a href="https://www.kernel.org/doc/html/next/admin-guide/mm/transhuge.html">guide
+d'administration Linux officiel</a> pour plus de détails.
+Si tu choisis de faire activer les pages énormes transparentes dans ton environnement
+de production Linux, nous recommandons les paramètres supplémentaires suivants pour
+les programmes Go.
+</p>
+
+<ul>
+	<li>
+		<p>
+		Définis <code>/sys/kernel/mm/transparent_hugepage/defrag</code>
+		à <code>defer</code> ou <code>defer+madvise</code>.
+		<br />
+		<br />
+		Ce paramètre contrôle à quel point le noyau Linux consolide agressivement les
+		pages normales en pages énormes.
+		<code>defer</code> indique au noyau de consolider les pages énormes paresseusement
+		et en arrière-plan.
+		Un paramètre plus agressif peut induire des blocages dans les systèmes contraints
+		en mémoire et peut souvent nuire aux latences des applications.
+		<code>defer+madvise</code> est comme <code>defer</code>, mais est plus adapté aux
+		autres applications sur le système qui demandent des pages énormes explicitement
+		et en ont besoin pour leurs performances.
+		</p>
+	</li>
+	<li>
+		<p id="Linux_THP_max_ptes_none_workaround">
+		Définis <code>/sys/kernel/mm/transparent_hugepage/khugepaged/max_ptes_none</code>
+		à <code>0</code>.
+		<br />
+		<br />
+		Ce paramètre contrôle combien de pages supplémentaires le daemon du noyau Linux
+		peut allouer lorsqu'il essaie d'allouer une page énorme.
+		Le paramètre par défaut est maximalement agressif, et peut souvent
+		<a href="https://bugzilla.kernel.org/show_bug.cgi?id=93111">annuler le travail
+		que le runtime Go fait pour retourner de la mémoire à l'OS</a>.
+		Avant Go 1.21, le runtime Go essayait d'atténuer les effets négatifs du paramètre
+		par défaut, mais cela avait un coût CPU.
+		Avec Go 1.21+ et Linux 6.2+, le runtime Go ne modifie plus l'état des pages énormes.
+		<br />
+		<br />
+		Si tu rencontres une augmentation de l'utilisation mémoire lors de la mise à niveau
+		vers Go 1.21.1 ou une version ultérieure, essaie d'appliquer ce paramètre ; cela
+		résoudra probablement ton problème.
+		Comme solution de contournement supplémentaire, tu peux appeler
+		<a href="/pkg/golang.org/x/sys/unix#Prctl">la fonction <code>Prctl</code></a>
+		avec <code>PR_SET_THP_DISABLE</code> pour désactiver les pages énormes au niveau
+		du processus, ou tu peux définir <code>GODEBUG=disablethp=1</code> (à ajouter
+		dans Go 1.21.6 et Go 1.22) pour désactiver les pages énormes pour la mémoire de
+		tas.
+		Note que le paramètre <code>GODEBUG</code> pourrait être supprimé dans une version
+		future.
+		</p>
+	</li>
+</ul>
+
+<h2 id="Appendix">Annexe</h2>
+
+<h3 id="Additional_notes_on_GOGC">Notes supplémentaires sur GOGC</h3>
+
+<p>
+La <a href="#GOGC">section GOGC</a> affirmait que doubler GOGC double les surcharges
+mémoire du tas et divise par deux les coûts CPU GC.
+Pour comprendre pourquoi, développons cela mathématiquement.
+</p>
+
+<p>
+Premièrement, l'objectif de tas définit une cible pour la taille totale du tas.
+Cet objectif, cependant, influence principalement la nouvelle mémoire de tas, car le
+live heap est fondamental pour l'application.
+</p>
+
+<p class="gc-guide-equation">
+<i>
+Target heap memory = Live heap + (Live heap + GC roots) * GOGC / 100
+</i>
+</p>
+
+<p class="gc-guide-equation">
+<i>
+Total heap memory = Live heap + New heap memory
+</i>
+</p>
+
+<p class="gc-guide-equation">
+<i>
+&rArr;
+</i>
+</p>
+
+<p class="gc-guide-equation">
+<i>
+New heap memory = (Live heap + GC roots) * GOGC / 100
+</i>
+</p>
+
+<p>
+De cela, on peut voir que doubler GOGC doublerait aussi la quantité de nouvelle mémoire
+de tas que l'application allouera à chaque cycle, ce qui capture les surcharges mémoire
+du tas.
+Note que <i>Live heap + GC roots</i> est une approximation de la quantité de mémoire
+que le GC doit parcourir.
+</p>
+
+<p>
+Ensuite, examinons le coût CPU du GC.
+Le coût total peut être décomposé comme le coût par cycle, multiplié par la fréquence
+GC sur une période de temps T.
+</p>
+
+<p class="gc-guide-equation">
+<i>
+Total GC CPU cost = (GC CPU cost per cycle) * (GC frequency) * T
+</i>
+</p>
+
+<p>
+Le coût CPU GC par cycle peut être dérivé du
+<a href="#Understanding_costs">modèle GC</a> :
+</p>
+
+<p class="gc-guide-equation">
+<i>
+GC CPU cost per cycle = (Live heap + GC roots) * (Cost per byte) + Fixed cost
+</i>
+</p>
+
+<p>
+Note que les coûts de la phase de sweep sont ignorés ici car les coûts de marking et
+de scanning dominent.
+</p>
+
+<p>
+Le régime permanent est défini par un taux d'allocation constant et un coût par octet
+constant, donc en régime permanent on peut dériver une fréquence GC de cette nouvelle
+mémoire de tas :
+</p>
+
+<p class="gc-guide-equation">
+<i>
+GC frequency = (Allocation rate) / (New heap memory) = (Allocation rate) / ((Live heap + GC roots) * GOGC / 100)
+</i>
+</p>
+
+<p>
+En rassemblant tout cela, on obtient l'équation complète pour le coût total :
+</p>
+
+<p class="gc-guide-equation">
+<i>
+Total GC CPU cost = (Allocation rate) / ((Live heap + GC roots) * GOGC / 100) * ((Live heap + GC roots) * (Cost per byte) + Fixed cost) * T
+</i>
+</p>
+
+<p>
+Pour un tas suffisamment grand (ce qui représente la plupart des cas), les coûts
+marginaux d'un cycle GC dominent les coûts fixes.
+Cela permet une simplification significative de la formule du coût CPU total du GC.
+</p>
+
+<p class="gc-guide-equation">
+<i>
+Total GC CPU cost = (Allocation rate) / (GOGC / 100) * (Cost per byte) * T
+</i>
+</p>
+
+<p>
+De cette formule simplifiée, on peut voir que si on double GOGC, on divise par deux le
+coût CPU total du GC.
+(Note que les visualisations de ce guide simulent les coûts fixes, donc les surcharges
+CPU GC qu'elles rapportent ne seront pas exactement divisées par deux lorsque GOGC double.)
+De plus, les coûts CPU du GC sont largement déterminés par le taux d'allocation et le
+coût par octet pour parcourir la mémoire.
+Pour plus d'informations sur la façon de réduire ces coûts spécifiquement, consulte le
+<a href="#Optimization_guide">guide d'optimisation</a>.
+</p>
+
+<p class="gc-guide-note">
+Note : il existe une divergence entre la taille du live heap et la quantité de cette
+mémoire que le GC a réellement besoin de parcourir : le même live heap de taille
+identique mais avec une structure différente entraînera un coût CPU différent, mais un
+coût mémoire identique, résultant en un compromis différent.
+C'est pourquoi la structure du tas fait partie de la définition du régime permanent.
+L'objectif de tas devrait sans doute n'inclure que le live heap scannable comme
+approximation plus proche de la mémoire que le GC a besoin de parcourir, mais cela
+conduit à un comportement dégénéré lorsqu'il y a une très petite quantité de live heap
+scannable mais que le live heap est autrement grand.
+</p>
+
+<script src="/js/d3.js"></script>
+<script async src="/doc/gc-guide.js"></script>

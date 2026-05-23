@@ -1,0 +1,360 @@
+Plus de types : structs, slices et maps.
+Apprends à définir des types à partir de types existants : cette leçon couvre les structs, les tableaux, les slices et les maps.
+
+The Go Authors
+https://golang.org
+
+* Pointeurs
+
+Go a des pointeurs.
+Un pointer contient l'adresse mémoire d'une valeur.
+
+Le type `*T` est un pointer vers une valeur de type `T`. Sa valeur zéro est `nil`.
+
+	var p *int
+
+L'opérateur `&` génère un pointer vers son opérande.
+
+	i := 42
+	p = &i
+
+L'opérateur `*` désigne la valeur sous-jacente du pointer.
+
+	fmt.Println(*p) // read i through the pointer p
+	*p = 21         // set i through the pointer p
+
+On appelle cela le "déréférencement" ou "l'indirection".
+
+Contrairement au C, Go ne dispose pas d'arithmétique de pointeurs.
+
+.play moretypes/pointers.go
+
+* Structs
+
+Une `struct` est un ensemble de champs.
+
+.play moretypes/structs.go
+
+* Champs d'une struct
+
+Les champs d'une struct sont accessibles via un point.
+
+.play moretypes/struct-fields.go
+
+* Pointeurs vers des structs
+
+Les champs d'une struct sont accessibles via un pointer vers la struct.
+
+Pour accéder au champ `X` d'une struct lorsqu'on dispose du pointer `p` vers cette struct, on pourrait
+écrire `(*p).X`.
+Cependant, cette notation est lourde, aussi le langage permet d'écrire simplement
+`p.X`, sans déréférencement explicite.
+
+.play moretypes/struct-pointers.go
+
+* Littéraux de struct
+
+Un littéral de struct désigne une valeur de struct nouvellement allouée en listant les valeurs de ses champs.
+
+Tu peux ne lister qu'un sous-ensemble de champs en utilisant la syntaxe `Nom:`. (L'ordre des champs nommés est sans importance.)
+
+Le préfixe spécial `&` retourne un pointer vers la valeur de la struct.
+
+.play moretypes/struct-literals.go
+
+
+* Tableaux
+
+Le type `[n]T` est un tableau de `n` valeurs de type `T`.
+
+L'expression
+
+	var a [10]int
+
+déclare une variable `a` comme un tableau de dix entiers.
+
+La longueur d'un tableau fait partie de son type, donc les tableaux ne peuvent pas être redimensionnés.
+Cela peut sembler limitant, mais ne t'inquiète pas ;
+Go offre un moyen pratique de travailler avec les tableaux.
+
+.play moretypes/array.go
+
+
+* Slices
+
+Un tableau a une taille fixe.
+Une slice, en revanche, est une vue dynamique et flexible
+sur les éléments d'un tableau.
+En pratique, les slices sont bien plus courantes que les tableaux.
+
+Le type `[]T` est une slice d'éléments de type `T`.
+
+Une slice est formée en spécifiant deux indices, une borne basse et
+une borne haute, séparées par deux-points :
+
+	a[low : high]
+
+Cela sélectionne un intervalle semi-ouvert qui inclut le premier
+élément mais exclut le dernier.
+
+L'expression suivante crée une slice comprenant
+les éléments 1 à 3 de `a` :
+
+	a[1:4]
+
+.play moretypes/slices.go
+
+
+* Les slices sont comme des références vers des tableaux
+
+Une slice ne stocke aucune donnée,
+elle décrit simplement une section d'un tableau sous-jacent.
+
+Modifier les éléments d'une slice modifie les éléments
+correspondants du tableau sous-jacent.
+
+D'autres slices partageant le même tableau sous-jacent verront ces changements.
+
+.play moretypes/slices-pointers.go
+
+
+* Littéraux de slice
+
+Un littéral de slice ressemble à un littéral de tableau sans la longueur.
+
+Voici un littéral de tableau :
+
+	[3]bool{true, true, false}
+
+Et ceci crée le même tableau que ci-dessus,
+puis construit une slice qui y fait référence :
+
+	[]bool{true, true, false}
+
+.play moretypes/slice-literals.go
+
+
+* Valeurs par défaut des slices
+
+Lors du découpage, tu peux omettre les bornes haute ou basse pour utiliser leurs valeurs par défaut.
+
+La valeur par défaut est zéro pour la borne basse et la longueur de la slice ou du tableau sous-jacent pour la borne haute.
+
+Pour le tableau
+
+	var a [10]int
+
+ces expressions de slice sont équivalentes :
+
+	a[0:10]
+	a[:10]
+	a[0:]
+	a[:]
+
+.play moretypes/slice-bounds.go
+
+
+* Longueur et capacité d'une slice
+
+Une slice a à la fois une _longueur_ et une _capacité_.
+
+La longueur d'une slice est le nombre d'éléments qu'elle contient.
+
+La capacité d'une slice est le nombre d'éléments dans le tableau sous-jacent,
+en comptant depuis le premier élément de la slice.
+
+La longueur et la capacité d'une slice `s` peuvent être obtenues via les expressions
+`len(s)` et `cap(s)`.
+
+Tu peux étendre la longueur d'une slice en la re-découpant,
+à condition qu'elle ait une capacité suffisante.
+Essaie de modifier l'une des opérations de slice dans l'exemple pour l'étendre
+au-delà de sa capacité et observe ce qui se passe.
+
+.play moretypes/slice-len-cap.go
+
+
+* Slices nil
+
+La valeur zéro d'une slice est `nil`.
+
+Une slice nil a une longueur et une capacité de 0
+et n'a pas de tableau sous-jacent.
+
+.play moretypes/nil-slices.go
+
+
+* Créer une slice avec make
+
+Les slices peuvent être créées avec la fonction intégrée `make` ;
+c'est ainsi que l'on crée des tableaux de taille dynamique.
+
+La fonction `make` alloue un tableau mis à zéro
+et retourne une slice qui y fait référence :
+
+	a := make([]int, 5)  // len(a)=5
+
+Pour spécifier une capacité, passe un troisième argument à `make` :
+
+	b := make([]int, 0, 5) // len(b)=0, cap(b)=5
+
+	b = b[:cap(b)] // len(b)=5, cap(b)=5
+	b = b[1:]      // len(b)=4, cap(b)=4
+
+.play moretypes/making-slices.go
+
+
+* Slices de slices
+
+Les slices peuvent contenir tout type, y compris d'autres slices.
+
+.play moretypes/slices-of-slice.go
+
+
+* Ajouter des éléments à une slice
+
+Il est courant d'ajouter de nouveaux éléments à une slice, aussi Go fournit une fonction intégrée
+`append`. La [[/pkg/builtin/#append][documentation]]
+du package intégré décrit `append`.
+
+	func append(s []T, vs ...T) []T
+
+Le premier paramètre `s` de `append` est une slice de type `T`, et les suivants sont des
+valeurs de type `T` à ajouter à la slice.
+
+La valeur résultante de `append` est une slice contenant tous les éléments de la
+slice originale plus les valeurs fournies.
+
+Si le tableau de support de `s` est trop petit pour contenir toutes les valeurs données, un tableau plus grand
+sera alloué. La slice retournée pointera vers le tableau nouvellement alloué.
+
+(Pour en savoir plus sur les slices, lis l'article [[/blog/go-slices-usage-and-internals][Slices: usage and internals]].)
+
+.play moretypes/append.go
+
+
+* Range
+
+La forme `range` de la boucle `for` itère sur une slice ou une map.
+
+Lors du parcours d'une slice, deux valeurs sont retournées à chaque itération.
+La première est l'index, la seconde est une copie de l'élément à cet index.
+
+.play moretypes/range.go
+
+* Range (suite)
+
+Tu peux ignorer l'index ou la valeur en les assignant à `_`.
+
+    for i, _ := range pow
+    for _, value := range pow
+
+Si tu veux uniquement l'index, tu peux omettre la seconde variable.
+
+    for i := range pow
+
+.play moretypes/range-continued.go
+
+* Exercice : Slices
+
+Implémente `Pic`. Elle doit retourner une slice de longueur `dy`, dont chaque élément est une slice de `dx` entiers non signés sur 8 bits. Quand tu exécutes le programme, il affichera ton image en interprétant les entiers comme des valeurs de niveaux de gris (enfin, de bleu).
+
+Le choix de l'image t'appartient. Des fonctions intéressantes sont `(x+y)/2`, `x*y` et `x^y`.
+
+(Tu dois utiliser une boucle pour allouer chaque `[]uint8` dans le `[][]uint8`.)
+
+(Utilise `uint8(intValue)` pour convertir entre les types.)
+
+.play moretypes/exercise-slices.go
+
+* Maps
+
+Une map associe des clés à des valeurs.
+
+La valeur zéro d'une map est `nil`.
+Une map `nil` n'a pas de clés et on ne peut pas en ajouter.
+
+La fonction `make` retourne une map du type donné,
+initialisée et prête à l'emploi.
+
+.play moretypes/maps.go
+
+* Littéraux de map
+
+Les littéraux de map ressemblent aux littéraux de struct, mais les clés sont obligatoires.
+
+.play moretypes/map-literals.go
+
+* Littéraux de map (suite)
+
+Si le type de premier niveau est simplement un nom de type, tu peux l'omettre dans les éléments du littéral.
+
+.play moretypes/map-literals-continued.go
+
+* Modifier une map
+
+Insérer ou mettre à jour un élément dans la map `m` :
+
+	m[key] = elem
+
+Récupérer un élément :
+
+	elem = m[key]
+
+Supprimer un élément :
+
+	delete(m, key)
+
+Vérifier qu'une clé est présente via une affectation à deux valeurs :
+
+	elem, ok = m[key]
+
+Si `key` est dans `m`, `ok` vaut `true`. Sinon, `ok` vaut `false`.
+
+Si `key` n'est pas dans la map, `elem` est la valeur zéro du type des éléments de la map.
+
+*Remarque :* Si `elem` ou `ok` n'ont pas encore été déclarés, tu peux utiliser une déclaration courte :
+
+	elem, ok := m[key]
+
+.play moretypes/mutating-maps.go
+
+* Exercice : Maps
+
+Implémente `WordCount`. Elle doit retourner une map du nombre d'occurrences de chaque "mot" dans la chaîne `s`. La fonction `wc.Test` exécute une suite de tests sur la fonction fournie et affiche le succès ou l'échec.
+
+Tu trouveras peut-être [[/pkg/strings/#Fields][strings.Fields]] utile.
+
+.play moretypes/exercise-maps.go
+
+* Valeurs de fonctions
+
+Les fonctions sont aussi des valeurs. Elles peuvent être passées comme n'importe quelle autre valeur.
+
+Les valeurs de fonctions peuvent être utilisées comme arguments et valeurs de retour d'autres fonctions.
+
+.play moretypes/function-values.go
+
+* Fermetures (closures)
+
+Les fonctions Go peuvent être des closures. Une closure est une valeur de fonction qui fait référence à des variables extérieures à son corps. La fonction peut accéder à ces variables et les modifier ; en ce sens, la fonction est "liée" à ces variables.
+
+Par exemple, la fonction `adder` retourne une closure. Chaque closure est liée à sa propre variable `sum`.
+
+.play moretypes/function-closures.go
+
+* Exercice : Fermeture Fibonacci
+
+Amusons-nous avec les fonctions.
+
+Implémente une fonction `fibonacci` qui retourne une fonction (une closure) qui
+retourne des [[https://en.wikipedia.org/wiki/Fibonacci_number][nombres de Fibonacci]] successifs
+(0, 1, 1, 2, 3, 5, ...).
+
+.play moretypes/exercise-fibonacci-closure.go
+
+* Félicitations !
+
+Tu as terminé cette leçon !
+
+Tu peux retourner à la liste des [[/tour/list][modules]] pour choisir ce qu'apprendre ensuite, ou continuer avec la [[javascript:click('.next-page')][leçon suivante]].

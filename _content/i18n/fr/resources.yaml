@@ -1,0 +1,60 @@
+  - title: Services cloud et réseau
+    description: "Avec un écosystème riche d'outils et d'API sur les principaux fournisseurs cloud, créer des services avec Go est plus simple que jamais."
+    link: /solutions/cloud/
+    icon: /images/icons/sphere.svg
+    iconDark: /images/icons/sphere-dark.svg
+    iconName: Sphere
+    packages:
+    - title: cloud.google.com/go
+      url: https://cloud.google.com/go/home
+    - title: aws/client
+      url: https://aws.amazon.com/sdk-for-go/
+    - title: Azure/azure-sdk-for-go
+      url: https://github.com/Azure/azure-sdk-for-go
+  - title: Interfaces en ligne de commande
+    description: "Grâce à des packages open source populaires et une bibliothèque standard robuste, utilise Go pour créer des CLIs rapides et élégantes."
+    link: /solutions/clis/
+    icon: /images/icons/command-folder.svg
+    iconDark: /images/icons/command-folder-dark.svg
+    iconName: Command Line
+    packages:
+    - title: spf13/cobra
+      url: https://github.com/spf13/cobra
+    - title: spf13/viper
+      url: https://github.com/spf13/viper
+    - title: urfave/cli
+      url: https://github.com/urfave/cli
+    - title: delve
+      url: https://github.com/go-delve/delve
+    - title: chzyer/readline
+      url: https://github.com/chzyer/readline
+  - title: Développement web
+    description: "Avec des performances mémoire optimisées et la prise en charge de plusieurs IDE, Go propulse des applications web rapides et évolutives."
+    link: /solutions/webdev/
+    icon: /images/icons/code.svg
+    iconDark: /images/icons/code-dark.svg
+    iconName: Code
+    packages:
+    - title: net/http
+      url: /pkg/net/http/
+    - title: html/template
+      url: /pkg/html/template/
+    - title: flosch/pongo2
+      url: https://github.com/flosch/pongo2
+    - title: database/sql
+      url: /pkg/database/sql/
+    - title: elastic/go-elasticsearch
+      url: https://github.com/elastic/go-elasticsearch
+  - title: DevOps et fiabilité des sites
+    description: "Avec des temps de build rapides, une syntaxe concise, un formateur automatique et un générateur de documentation, Go est conçu pour accompagner DevOps et SRE."
+    link: /solutions/devops/
+    icon: /images/icons/gear.svg
+    iconDark: /images/icons/gear-dark.svg
+    iconName: Sphere
+    packages:
+    - title: open-telemetry/opentelemetry-go
+      url: https://github.com/open-telemetry/opentelemetry-go
+    - title: istio/istio
+      url: https://github.com/istio/istio
+    - title: urfave/cli
+      url: https://github.com/urfave/cli
