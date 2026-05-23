@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: golangorg-fr
+    runtime: docker
+    plan: free
+    region: frankfurt
+    branch: master
+    healthCheckPath: /
+    autoDeploy: true

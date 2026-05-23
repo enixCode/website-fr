@@ -1,0 +1,81 @@
+name: sync-upstream
+
+on:
+  schedule:
+    - cron: "0 6 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name "enixCode"
+          git config user.email "58286681+enixCode@users.noreply.github.com"
+
+      - name: Add upstream and fetch
+        run: |
+          git remote add upstream https://github.com/golang/website.git
+          git fetch upstream master
+
+      - name: Check if sync needed
+        id: check
+        run: |
+          BEHIND=$(git rev-list --count HEAD..upstream/master)
+          echo "behind=$BEHIND" >> "$GITHUB_OUTPUT"
+          echo "master is $BEHIND commits behind upstream/master"
+
+      - name: Skip if already up to date
+        if: steps.check.outputs.behind == '0'
+        run: echo "Nothing to sync."
+
+      - name: Create sync branch and merge
+        if: steps.check.outputs.behind != '0'
+        id: merge
+        run: |
+          BRANCH="sync/upstream-$(date +%Y-%m-%d)"
+          git checkout -b "$BRANCH"
+          if git merge upstream/master --no-edit; then
+            echo "merge_ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "merge_ok=false" >> "$GITHUB_OUTPUT"
+            git merge --abort || true
+            git checkout master
+            git branch -D "$BRANCH"
+            echo "merge had conflicts; aborting branch creation"
+            exit 1
+          fi
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Push sync branch
+        if: steps.check.outputs.behind != '0' && steps.merge.outputs.merge_ok == 'true'
+        run: git push origin "${{ steps.merge.outputs.branch }}"
+
+      - name: Open pull request
+        if: steps.check.outputs.behind != '0' && steps.merge.outputs.merge_ok == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create \
+            --base master \
+            --head "${{ steps.merge.outputs.branch }}" \
+            --title "sync: upstream golang/website ($(date +%Y-%m-%d))" \
+            --body "Automatic merge of upstream golang/website into master.
+
+          - $(git rev-list --count master..${{ steps.merge.outputs.branch }}) new upstream commits
+          - No conflicts encountered (all FR translations live under _content/i18n/fr/, which upstream never modifies)
+          - Review the upstream changes, then merge.
+
+          Triggered by .github/workflows/sync-upstream.yml"
