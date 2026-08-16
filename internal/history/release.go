@@ -14,6 +14,119 @@ import "html/template"
 // The table is sorted by date, breaking ties with newer versions first.
 var Releases = []*Release{
 	{
+		Date: Date{2026, 8, 13}, Version: Version{1, 26, 6},
+		Security: &FixSummary{
+			Components: []template.HTML{"the <code>go</code> command"},
+			Packages: []string{
+				"crypto/tls",
+				"encoding/asn1",
+				"encoding/xml",
+				"html/template",
+				"net",
+				"net/http",
+				"net/url",
+			},
+		},
+		Bug: &FixSummary{
+			Components: []template.HTML{"the compiler", "the linker", "the runtime"},
+			Packages:   []string{"crypto/tls", "os"},
+		},
+	},
+	{
+		Date: Date{2026, 8, 13}, Version: Version{1, 25, 13},
+		Security: &FixSummary{
+			Components: []template.HTML{"the <code>go</code> command"},
+			Packages: []string{
+				"crypto/tls",
+				"encoding/asn1",
+				"encoding/xml",
+				"html/template",
+				"net/http",
+				"net/url",
+			},
+		},
+		Bug: &FixSummary{
+			Components: []template.HTML{"the compiler", "the runtime"},
+			Packages:   []string{"crypto/tls", "os"},
+		},
+	},
+	{
+		Date: Date{2026, 7, 7}, Version: Version{1, 26, 5},
+		Security: &FixSummary{
+			Packages: []string{
+				"crypto/tls",
+				"os",
+			},
+		},
+		Bug: &FixSummary{
+			Components: []template.HTML{
+				"the compiler",
+				"the runtime",
+				"the <code>go</code> command",
+			},
+			Packages: []string{
+				"net",
+				"os",
+				"syscall",
+			},
+		},
+	},
+	{
+		Date: Date{2026, 7, 7}, Version: Version{1, 25, 12},
+		Security: &FixSummary{
+			Packages: []string{
+				"crypto/tls",
+				"os",
+			},
+		},
+		Bug: &FixSummary{
+			Components: []template.HTML{
+				"the compiler",
+				"the <code>go</code> command",
+			},
+			Packages: []string{
+				"net",
+				"os",
+			},
+		},
+	},
+	{
+		Date: Date{2026, 6, 2}, Version: Version{1, 26, 4},
+		Security: &FixSummary{
+			Packages: []string{
+				"crypto/x509",
+				"mime",
+				"net/textproto",
+			},
+		},
+		Bug: &FixSummary{
+			Components: []template.HTML{
+				"the compiler",
+				"the runtime",
+				"the <code>go fix</code> command",
+			},
+			Packages: []string{
+				"crypto/fips140",
+			},
+		},
+	},
+	{
+		Date: Date{2026, 6, 2}, Version: Version{1, 25, 11},
+		Security: &FixSummary{
+			Packages: []string{
+				"crypto/x509",
+				"mime",
+				"net/textproto",
+			},
+		},
+		Bug: &FixSummary{
+			Components: []template.HTML{
+				"the compiler",
+				"the runtime",
+			},
+		},
+	},
+	{
 		Date: Date{2026, 5, 7}, Version: Version{1, 26, 3},
 		Security: &FixSummary{
 			Components: []template.HTML{
