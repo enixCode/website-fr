@@ -28,6 +28,7 @@ package dl
 
 import (
 	"fmt"
+	"go/version"
 	"regexp"
 	"sort"
 	"strconv"
@@ -165,12 +166,12 @@ var featuredFiles = []Feature{
 	},
 	{
 		Platform:     "Apple macOS (ARM64)",
-		Requirements: "macOS 12 or later, Apple 64-bit processor",
+		Requirements: "macOS 13 or later, Apple 64-bit processor",
 		fileRE:       regexp.MustCompile(`\.darwin-arm64\.pkg$`),
 	},
 	{
 		Platform:     "Apple macOS (x86-64)",
-		Requirements: "macOS 12 or later, Intel 64-bit processor",
+		Requirements: "macOS 13 or later, Intel 64-bit processor",
 		fileRE:       regexp.MustCompile(`\.darwin-amd64\.pkg$`),
 	},
 	{
@@ -294,7 +295,7 @@ func (s fileOrder) Less(i, j int) bool {
 		if isStable(av) != isStable(bv) {
 			return isStable(av)
 		}
-		return versionLess(av, bv)
+		return version.Compare(av, bv) > 0
 	}
 	if a.OS != b.OS {
 		return a.OS < b.OS
@@ -306,23 +307,6 @@ func (s fileOrder) Less(i, j int) bool {
 		return a.Kind < b.Kind
 	}
 	return a.Filename < b.Filename
-}
-
-func versionLess(a, b string) bool {
-	maja, mina, ta := parseVersion(a)
-	majb, minb, tb := parseVersion(b)
-	if maja == majb {
-		if mina == minb {
-			if ta == "" {
-				return true
-			} else if tb == "" {
-				return false
-			}
-			return ta >= tb
-		}
-		return mina >= minb
-	}
-	return maja >= majb
 }
 
 func parseVersion(v string) (maj, min int, tail string) {

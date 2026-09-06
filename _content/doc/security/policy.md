@@ -19,16 +19,18 @@ Please format the subject of your email as "Vulnerability: {package name}:
 {one-line summary}", and avoid sending attachments in your email unless strictly
 necessary in order to avoid your message being marked as spam.
 
-Please keep reports succint, including a description of the issue you've found,
+If desired, please include your preferred attribution as part of the report.
+This attribution will be added to the CVE, if one is published.
+
+Please keep reports succinct, including a description of the issue you've found,
 the way in which you believe it can be exploited, and a small reproduction test
 case or program which demonstrates the issue.
 
-Your email will be acknowledged within 7 days, and you'll be kept up to date
-with the progress until resolution. Your issue will be fixed or made public
-within 90 days.
+We have a [list of decisions](/doc/security/decisions) about commonly-reported
+categories of issues.
 
-If you have not received a reply to your email within 7 days, please follow up
-with the Go Security team again at
+Your email will be acknowledged within 7 days. If you have not received a reply
+by then, please follow up with the Go Security team again at
 [security@golang.org](mailto:security@golang.org). Please make sure the word
 **vulnerability** is in your email.
 
@@ -37,6 +39,36 @@ report, it is possible that your email might have been marked as spam. In that
 case, please [file an issue here](https://g.co/vulnz). Select _"I want to
 report a technical security or an abuse risk related bug in a Google product
 (SQLi, XSS, etc.)"_, and list _"Go"_ as the affected product.
+
+Your issue will be fixed or made public within 90 days after our initial
+acknowledgement.
+
+Emails reporting security issues will be retained indefinitely
+to track remediation status and correctly attribute discoveries.
+
+### LLM-Generated Reports
+
+Please do not send LLM-generated reports without proper curation.
+
+Modern LLMs are very good at finding real and important security bugs.
+Unfortunately, they are also very good at finding imaginary issues, or real
+issues that are [not security bugs](/doc/security/decisions#non-vuln). LLM
+output is often verbose, buries important information in irrelevant text, and
+contains grandiose and unsupportable claims.
+
+For LLM-generated reports, the value lies in curation. Sending us dozens of
+possible security issues while relying on us to find the one significant result
+hidden among them asks us to do the curation, and ultimately hinders our goal of
+making Go secure. For this reason, we only attribute discoveries to reporters
+with a substantial percentage of real findings.
+
+While there are no hard and fast rules, as a general guideline, if most of your
+reports are not designated as security issues, and we do not believe that you
+are providing useful curation, we will not credit you for any discoveries in the
+remainder. We deliberately do not define a concrete threshold for "most" or what
+"curation" entails. However, our intent is that a good-faith reporter providing
+meaningful value will always receive credit, while a reporter forwarding large
+quantities of LLM output indiscriminately will not.
 
 ## Tracks
 
